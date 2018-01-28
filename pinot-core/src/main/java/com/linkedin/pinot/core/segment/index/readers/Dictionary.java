@@ -44,8 +44,6 @@ public interface Dictionary extends Closeable {
 
   int length();
 
-  boolean isSorted();
-
   // Batch read APIs
 
   void readIntValues(int[] dictIds, int inStartPos, int length, int[] outValues, int outStartPos);
@@ -57,5 +55,4 @@ public interface Dictionary extends Closeable {
   void readDoubleValues(int[] dictIds, int inStartPos, int length, double[] outValues, int outStartPos);
 
   void readStringValues(int[] dictIds, int inStartPos, int length, String[] outValues, int outStartPos);
-
 }

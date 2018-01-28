@@ -20,7 +20,6 @@ import org.apache.commons.lang.StringUtils;
 
 
 public class CommonConstants {
-
   public static class Helix {
     public static final String IS_SHUTDOWN_IN_PROGRESS = "shutdownInProgress";
 
@@ -253,12 +252,6 @@ public class CommonConstants {
     public static final String DEFAULT_COLUMN_MIN_MAX_VALUE_GENERATOR_MODE = "TIME";
   }
 
-  public static class Controller {
-    public static final String PREFIX_OF_CONFIG_OF_SEGMENT_FETCHER_FACTORY = "pinot.controller.segment.fetcher";
-    public static final String HOST_HTTP_HEADER = "Pinot-Controller-Host";
-    public static final String VERSION_HTTP_HEADER = "Pinot-Controller-Version";
-  }
-
   public static class Minion {
     public static final String INSTANCE_PREFIX = "Minion_";
     public static final String INSTANCE_TYPE = "minion";
@@ -273,7 +266,6 @@ public class CommonConstants {
     public static final String DEFAULT_INSTANCE_BASE_DIR =
         System.getProperty("java.io.tmpdir") + File.separator + "PinotMinion";
     public static final String DEFAULT_INSTANCE_DATA_DIR = DEFAULT_INSTANCE_BASE_DIR + File.separator + "data";
-    public static final String PREFIX_OF_CONFIG_OF_SEGMENT_FETCHER_FACTORY = "segment.fetcher";
   }
 
   public static class Metric {
@@ -311,14 +303,7 @@ public class CommonConstants {
     public static final String CREATION_TIME = "segment.creation.time";
     public static final String FLUSH_THRESHOLD_SIZE = "segment.flush.threshold.size";
     public static final String PARTITION_METADATA = "segment.partition.metadata";
-    /**
-     * This field is used for parallel push protection to lock the segment globally.
-     * We put the segment upload start timestamp so that if the previous push failed without unlock the segment, the
-     * next upload won't be blocked forever.
-     */
-    public static final String SEGMENT_UPLOAD_START_TIME = "segment.upload.start.time";
-
-    public static final String CUSTOM_MAP = "custom.map";
+    public static final String OPTIMIZATIONS = "segment.optimizations";
 
     public static final String SEGMENT_BACKUP_DIR_SUFFIX = ".segment.bak";
     public static final String SEGMENT_TEMP_DIR_SUFFIX = ".segment.tmp";

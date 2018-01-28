@@ -24,6 +24,7 @@ import com.linkedin.pinot.common.utils.CommonConstants.Helix;
 import com.linkedin.pinot.common.utils.ControllerTenantNameBuilder;
 import com.linkedin.pinot.common.utils.StringUtil;
 import com.linkedin.pinot.common.utils.retry.RetryPolicies;
+import com.linkedin.pinot.common.utils.retry.RetryPolicy;
 import com.linkedin.pinot.controller.helix.core.realtime.PinotLLCRealtimeSegmentManager;
 import com.linkedin.pinot.core.realtime.impl.kafka.PinotKafkaConsumer;
 import com.linkedin.pinot.core.realtime.impl.kafka.PinotKafkaConsumerFactory;
@@ -190,7 +191,6 @@ public class PinotTableIdealStateBuilder {
     final List<String> realtimeInstances = helixAdmin.getInstancesInClusterWithTag(helixClusterName,
         realtimeServerTenant);
     boolean create = false;
-    // Validate replicasPerPartition here.
     final String replicasPerPartitionStr = realtimeTableConfig.getValidationConfig().getReplicasPerPartition();
     if (replicasPerPartitionStr == null || replicasPerPartitionStr.isEmpty()) {
       throw new RuntimeException("Null or empty value for replicasPerPartition, expected a number");
@@ -208,21 +208,26 @@ public class PinotTableIdealStateBuilder {
     }
     LOGGER.info("Assigning partitions to instances for simple consumer for table {}", realtimeTableName);
     final KafkaStreamMetadata kafkaMetadata = new KafkaStreamMetadata(realtimeTableConfig.getIndexingConfig().getStreamConfigs());
+    final String topicName = kafkaMetadata.getKafkaTopicName();
     final PinotLLCRealtimeSegmentManager segmentManager = PinotLLCRealtimeSegmentManager.getInstance();
     final int nPartitions = getPartitionCount(kafkaMetadata);
     LOGGER.info("Assigning {} partitions to instances for simple consumer for table {}", nPartitions, realtimeTableName);
-    segmentManager.setupHelixEntries(realtimeTableConfig, kafkaMetadata, nPartitions, realtimeInstances, idealState, create);
+    segmentManager.setupHelixEntries(topicName, realtimeTableName, nPartitions, realtimeInstances, nReplicas,
+        kafkaMetadata.getKafkaConsumerProperties().get(Helix.DataSource.Realtime.Kafka.AUTO_OFFSET_RESET),
+        kafkaMetadata.getBootstrapHosts(), idealState, create,
+        PinotLLCRealtimeSegmentManager.getLLCRealtimeTableFlushSize(realtimeTableConfig));
   }
 
   public static int getPartitionCount(KafkaStreamMetadata kafkaMetadata) {
     KafkaPartitionsCountFetcher fetcher = new KafkaPartitionsCountFetcher(kafkaMetadata);
-    try {
-      RetryPolicies.noDelayRetryPolicy(3).attempt(fetcher);
+    RetryPolicy policy = RetryPolicies.noDelayRetryPolicy(3);
+    boolean successful = policy.attempt(fetcher);
+    if (successful) {
       return fetcher.getPartitionCount();
-    } catch (Exception e) {
-      Exception fetcherException = fetcher.getException();
-      LOGGER.error("Could not get partition count for {}", kafkaMetadata.getKafkaTopicName(), fetcherException);
-      throw new RuntimeException(fetcherException);
+    } else {
+      Exception e = fetcher.getException();
+      LOGGER.error("Could not get partition count for {}", kafkaMetadata.getKafkaTopicName(), e);
+      throw new RuntimeException(e);
     }
   }
 

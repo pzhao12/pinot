@@ -19,10 +19,12 @@ package com.linkedin.pinot.common.config;
 import com.linkedin.pinot.common.data.StarTreeIndexSpec;
 import com.linkedin.pinot.common.utils.CommonConstants.Helix.TableType;
 import com.linkedin.pinot.startree.hll.HllConfig;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import org.apache.helix.ZNRecord;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -31,7 +33,8 @@ import org.testng.annotations.Test;
 public class TableConfigTest {
 
   @Test
-  public void testSerializeDeserialize() throws Exception {
+  public void testSerializeDeserialize()
+      throws IOException, JSONException {
     TableConfig.Builder tableConfigBuilder = new TableConfig.Builder(TableType.OFFLINE).setTableName("myTable");
     {
       // No quota config
@@ -93,8 +96,9 @@ public class TableConfigTest {
       replicaGroupConfig.setMirrorAssignmentAcrossReplicaGroups(true);
       replicaGroupConfig.setPartitionColumn("memberId");
 
-      TableConfig tableConfig =
-          tableConfigBuilder.setSegmentAssignmentStrategy("ReplicaGroupSegmentAssignmentStrategy").build();
+      TableConfig tableConfig = tableConfigBuilder
+          .setSegmentAssignmentStrategy("ReplicatGroupSegmentAssignmentStrategy")
+          .build();
       tableConfig.getValidationConfig().setReplicaGroupStrategyConfig(replicaGroupConfig);
 
       // Serialize then de-serialize
@@ -140,12 +144,6 @@ public class TableConfigTest {
       hllConfig.setHllLog2m(9);
       hllConfig.setHllDeriveColumnSuffix("suffix");
 
-      String hllConfigJson = hllConfig.toJsonString();
-      HllConfig newHllConfig = HllConfig.fromJsonString(hllConfigJson);
-      Assert.assertEquals(hllConfig.getColumnsToDeriveHllFields(), newHllConfig.getColumnsToDeriveHllFields());
-      Assert.assertEquals(hllConfig.getHllLog2m(), newHllConfig.getHllLog2m());
-      Assert.assertEquals(hllConfig.getHllDeriveColumnSuffix(), newHllConfig.getHllDeriveColumnSuffix());
-
       TableConfig tableConfig = tableConfigBuilder.build();
       tableConfig.getValidationConfig().setHllConfig(hllConfig);
 
@@ -175,27 +173,20 @@ public class TableConfigTest {
     Assert.assertEquals(strategyConfig.getPartitionColumn(), "memberId");
   }
 
-  private void checkTableConfigWithStarTreeConfig(TableConfig tableConfig, TableConfig tableConfigToCompare)
-      throws Exception {
+  private void checkTableConfigWithStarTreeConfig(TableConfig tableConfig, TableConfig tableConfigToCompare) {
     // Check that the segment assignment configuration does exist.
     Assert.assertEquals(tableConfigToCompare.getTableName(), tableConfig.getTableName());
     Assert.assertNotNull(tableConfigToCompare.getValidationConfig().getStarTreeConfig());
 
     // Check that the configurations are correct.
-    StarTreeIndexSpec starTreeIndexSpec = tableConfigToCompare.getValidationConfig().getStarTreeConfig();
+    StarTreeIndexSpec starTreeIndexSpec =
+        tableConfigToCompare.getValidationConfig().getStarTreeConfig();
 
     Set<String> dims = new HashSet<>();
     dims.add("dims");
 
     Assert.assertEquals(starTreeIndexSpec.getDimensionsSplitOrder(), Collections.singletonList("dim"));
-    Assert.assertEquals(starTreeIndexSpec.getMaxLeafRecords(), 5);
-    Assert.assertEquals(starTreeIndexSpec.getSkipMaterializationCardinalityThreshold(), 1);
-    Assert.assertEquals(starTreeIndexSpec.getSkipMaterializationForDimensions(), dims);
-    Assert.assertEquals(starTreeIndexSpec.getSkipStarNodeCreationForDimensions(), dims);
-
-    starTreeIndexSpec = StarTreeIndexSpec.fromJsonString(starTreeIndexSpec.toJsonString());
-    Assert.assertEquals(starTreeIndexSpec.getDimensionsSplitOrder(), Collections.singletonList("dim"));
-    Assert.assertEquals(starTreeIndexSpec.getMaxLeafRecords(), 5);
+    Assert.assertEquals(starTreeIndexSpec.getMaxLeafRecords(), new Integer(5));
     Assert.assertEquals(starTreeIndexSpec.getSkipMaterializationCardinalityThreshold(), 1);
     Assert.assertEquals(starTreeIndexSpec.getSkipMaterializationForDimensions(), dims);
     Assert.assertEquals(starTreeIndexSpec.getSkipStarNodeCreationForDimensions(), dims);
@@ -207,7 +198,8 @@ public class TableConfigTest {
     Assert.assertNotNull(tableConfigToCompare.getValidationConfig().getHllConfig());
 
     // Check that the configurations are correct.
-    HllConfig hllConfig = tableConfigToCompare.getValidationConfig().getHllConfig();
+    HllConfig hllConfig =
+        tableConfigToCompare.getValidationConfig().getHllConfig();
 
     Set<String> columns = new HashSet<>();
     columns.add("column");

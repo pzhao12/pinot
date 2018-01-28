@@ -105,15 +105,10 @@ var HELPERS = {
   },
 
   executeQuery: function(query, traceEnabled, callback) {
-    var url = "/pql";
-    var params = JSON.stringify({
-      "pql": query,
-      "trace": traceEnabled
-    });
+    var url = "/pql?pql=" + encodeURIComponent(query) +"&trace=" + traceEnabled;
     $.ajax({
-      type: 'POST',
+      type: 'GET',
       url: url,
-      data: params,
       contentType: 'application/json; charset=utf-8',
       success: function (text) {
         callback(text);

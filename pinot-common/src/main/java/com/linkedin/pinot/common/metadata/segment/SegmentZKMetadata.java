@@ -20,10 +20,10 @@ import com.linkedin.pinot.common.utils.CommonConstants;
 import com.linkedin.pinot.common.utils.CommonConstants.Segment.SegmentType;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.helix.ZNRecord;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,8 +46,7 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
   private long _crc = -1;
   private long _creationTime = -1;
   private SegmentPartitionMetadata _partitionMetadata = null;
-  private long _segmentUploadStartTime = -1;
-  private Map<String, String> _customMap;
+  private List<String> _optimizations;
 
   public SegmentZKMetadata() {
   }
@@ -77,8 +76,7 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
           "Exception caught while reading partition info from zk metadata for segment '{}', partition info dropped.",
           _segmentName, e);
     }
-    _segmentUploadStartTime = znRecord.getLongField(CommonConstants.Segment.SEGMENT_UPLOAD_START_TIME, -1);
-    _customMap = znRecord.getMapField(CommonConstants.Segment.CUSTOM_MAP);
+    _optimizations = znRecord.getListField(CommonConstants.Segment.OPTIMIZATIONS);
   }
 
   public String getSegmentName() {
@@ -169,20 +167,12 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
     return _partitionMetadata;
   }
 
-  public long getSegmentUploadStartTime() {
-    return _segmentUploadStartTime;
+  public List<String> getOptimizations() {
+    return _optimizations;
   }
 
-  public void setSegmentUploadStartTime(long segmentUploadStartTime) {
-    _segmentUploadStartTime = segmentUploadStartTime;
-  }
-
-  public Map<String, String> getCustomMap() {
-    return _customMap;
-  }
-
-  public void setCustomMap(Map<String, String> customMap) {
-    _customMap = customMap;
+  public void setOptimizations(List<String> optimizations) {
+    _optimizations = optimizations;
   }
 
   @Override
@@ -207,8 +197,7 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
         && isEqual(_crc, metadata._crc)
         && isEqual(_creationTime, metadata._creationTime)
         && isEqual(_partitionMetadata, metadata._partitionMetadata)
-        && isEqual(_segmentUploadStartTime, metadata._segmentUploadStartTime)
-        && isEqual(_customMap, metadata._customMap);
+        && isEqual(_optimizations, metadata._optimizations);
   }
 
   @Override
@@ -224,8 +213,7 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
     result = hashCodeOf(result, _crc);
     result = hashCodeOf(result, _creationTime);
     result = hashCodeOf(result, _partitionMetadata);
-    result = hashCodeOf(result, _segmentUploadStartTime);
-    result = hashCodeOf(result, _customMap);
+    result = hashCodeOf(result, _optimizations);
     return result;
   }
 
@@ -258,17 +246,14 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
             _segmentName, e);
       }
     }
-    if (_segmentUploadStartTime > 0) {
-      znRecord.setLongField(CommonConstants.Segment.SEGMENT_UPLOAD_START_TIME, _segmentUploadStartTime);
-    }
-    if (_customMap != null) {
-      znRecord.setMapField(CommonConstants.Segment.CUSTOM_MAP, _customMap);
+    if (_optimizations != null) {
+      znRecord.setListField(CommonConstants.Segment.OPTIMIZATIONS, _optimizations);
     }
     return znRecord;
   }
 
   public Map<String, String> toMap() {
-    Map<String, String> configMap = new HashMap<>();
+    Map<String, String> configMap = new HashMap<String, String>();
     configMap.put(CommonConstants.Segment.SEGMENT_NAME, _segmentName);
     configMap.put(CommonConstants.Segment.TABLE_NAME, _tableName);
     configMap.put(CommonConstants.Segment.SEGMENT_TYPE, _segmentType.toString());
@@ -295,18 +280,6 @@ public abstract class SegmentZKMetadata implements ZKMetadata {
             _segmentName, e);
       }
     }
-
-    if (_segmentUploadStartTime > 0) {
-      configMap.put(CommonConstants.Segment.SEGMENT_UPLOAD_START_TIME, Long.toString(_segmentUploadStartTime));
-    }
-
-    if (_customMap == null) {
-      configMap.put(CommonConstants.Segment.CUSTOM_MAP, null);
-    } else {
-      JSONObject jsonObject = new JSONObject(_customMap);
-      configMap.put(CommonConstants.Segment.CUSTOM_MAP, jsonObject.toString());
-    }
-
     return configMap;
   }
 }

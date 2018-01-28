@@ -26,21 +26,21 @@ import com.linkedin.pinot.common.utils.CommonConstants.Helix.DataSource;
 import com.linkedin.pinot.common.utils.CommonConstants.Helix.DataSource.Realtime.Kafka;
 import com.linkedin.pinot.common.utils.CommonConstants.Minion;
 import com.linkedin.pinot.common.utils.CommonConstants.Server;
-import com.linkedin.pinot.common.utils.FileUploadDownloadClient;
+import com.linkedin.pinot.common.utils.FileUploadUtils;
 import com.linkedin.pinot.common.utils.ZkStarter;
 import com.linkedin.pinot.controller.helix.ControllerRequestBuilderUtil;
 import com.linkedin.pinot.controller.helix.ControllerTest;
 import com.linkedin.pinot.core.data.GenericRow;
 import com.linkedin.pinot.core.indexsegment.generator.SegmentVersion;
+import com.linkedin.pinot.core.indexsegment.utils.AvroUtils;
 import com.linkedin.pinot.core.realtime.impl.kafka.AvroRecordToPinotRowGenerator;
 import com.linkedin.pinot.core.realtime.impl.kafka.KafkaMessageDecoder;
-import com.linkedin.pinot.core.util.AvroUtils;
 import com.linkedin.pinot.minion.MinionStarter;
 import com.linkedin.pinot.minion.executor.PinotTaskExecutor;
 import com.linkedin.pinot.server.starter.helix.DefaultHelixStarterServerConfig;
 import com.linkedin.pinot.server.starter.helix.HelixServerStarter;
 import java.io.File;
-import java.net.URI;
+import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -202,10 +202,13 @@ public abstract class ClusterTest extends ControllerTest {
   }
 
   protected void addSchema(File schemaFile, String schemaName) throws Exception {
-    try (FileUploadDownloadClient fileUploadDownloadClient = new FileUploadDownloadClient()) {
-      fileUploadDownloadClient.addSchema(FileUploadDownloadClient.getUploadSchemaHttpURI(LOCAL_HOST, _controllerPort),
-          schemaName, schemaFile);
-    }
+    FileUploadUtils.sendFile(LOCAL_HOST, Integer.toString(_controllerPort), "schemas", schemaName,
+        new FileInputStream(schemaFile), schemaFile.length(), FileUploadUtils.SendFileMethod.POST);
+  }
+
+  protected void updateSchema(File schemaFile, String schemaName) throws Exception {
+    FileUploadUtils.sendFile(LOCAL_HOST, Integer.toString(_controllerPort), "schemas/" + schemaName, schemaName,
+        new FileInputStream(schemaFile), schemaFile.length(), FileUploadUtils.SendFileMethod.PUT);
   }
 
   /**
@@ -213,15 +216,13 @@ public abstract class ClusterTest extends ControllerTest {
    *
    * @param segmentDir Segment directory
    */
-  protected void uploadSegments(@Nonnull File segmentDir) throws Exception {
+  protected void uploadSegments(@Nonnull File segmentDir) {
     String[] segmentNames = segmentDir.list();
     Assert.assertNotNull(segmentNames);
-    try (FileUploadDownloadClient fileUploadDownloadClient = new FileUploadDownloadClient()) {
-      URI uploadSegmentHttpURI = FileUploadDownloadClient.getUploadSegmentHttpURI(LOCAL_HOST, _controllerPort);
-      for (String segmentName : segmentNames) {
-        File segmentFile = new File(segmentDir, segmentName);
-        fileUploadDownloadClient.uploadSegment(uploadSegmentHttpURI, segmentName, segmentFile);
-      }
+    for (String segmentName : segmentNames) {
+      File segmentFile = new File(segmentDir, segmentName);
+      FileUploadUtils.sendSegmentFile(LOCAL_HOST, Integer.toString(_controllerPort), segmentName, segmentFile,
+          segmentFile.length());
     }
   }
 

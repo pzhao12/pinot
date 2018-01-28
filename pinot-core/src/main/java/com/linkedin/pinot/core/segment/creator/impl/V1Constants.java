@@ -132,6 +132,7 @@ public class V1Constants {
       public static final String SEGMENT_TOTAL_CONVERSIONS = "segment.total.conversions";
       public static final String SEGMENT_TOTAL_NULL_COLS = "segment.total.null.cols";
       public static final String SEGMENT_HLL_LOG2M = "segment.hll.log2m";
+      public static final String SEGMENT_OPTIMIZATIONS = "segment.optimizations";
 
       // not using currently
       public static final String SEGMENT_INDEX_TYPE = "segment.index.type";
@@ -167,12 +168,17 @@ public class V1Constants {
       public static final String PARTITION_VALUES = "partitionValues";
       public static final String DATETIME_FORMAT = "datetimeFormat";
       public static final String DATETIME_GRANULARITY = "datetimeGranularity";
+      public static final String DATETIME_TYPE = "datetimeType";
 
 
       private static final String COLUMN_PROPS_KEY_PREFIX = "column.";
       public static String getKeyFor(String column, String key) {
         return COLUMN_PROPS_KEY_PREFIX + column + "." + key;
       }
+    }
+
+    public static class Optimization {
+      public static final String RAW_INDEX = "rawIndex";
     }
   }
 }

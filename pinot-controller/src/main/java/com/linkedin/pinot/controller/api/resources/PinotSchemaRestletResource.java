@@ -20,8 +20,7 @@ import com.linkedin.pinot.common.config.TableConfig;
 import com.linkedin.pinot.common.data.Schema;
 import com.linkedin.pinot.common.metrics.ControllerMeter;
 import com.linkedin.pinot.common.metrics.ControllerMetrics;
-import com.linkedin.pinot.controller.api.events.MetadataEventNotifierFactory;
-import com.linkedin.pinot.controller.api.events.SchemaEventType;
+import com.linkedin.pinot.controller.api.events.MetadataChangeNotifierFactory;
 import com.linkedin.pinot.controller.helix.core.PinotHelixResourceManager;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -64,7 +63,7 @@ public class PinotSchemaRestletResource {
   ControllerMetrics _controllerMetrics;
 
   @Inject
-  MetadataEventNotifierFactory _metadataEventNotifierFactory;
+  MetadataChangeNotifierFactory _metadataChangeNotifierFactory;
 
   @GET
   @Produces(MediaType.APPLICATION_JSON)
@@ -173,16 +172,18 @@ public class PinotSchemaRestletResource {
     }
 
     try {
-      SchemaEventType eventType = SchemaEventType.UPDATE;
+      Schema oldSchema;
       if (schemaName == null) {
         // New schema posted
-        eventType = SchemaEventType.CREATE;
+        oldSchema = null;
+      } else {
+        oldSchema = _pinotHelixResourceManager.getSchema(schemaName);
       }
       _pinotHelixResourceManager.addOrUpdateSchema(schema);
 
       // Best effort notification. If controller fails at this point, no notification is given.
-      LOGGER.info("Metadata change notification for schema {}, type {}", schema, eventType);
-      _metadataEventNotifierFactory.create().notifyOnSchemaEvents(schema, eventType);
+      LOGGER.info("Metadata change notification from old schema {} to new schema {}", oldSchema, schema);
+      _metadataChangeNotifierFactory.create().notifyOnSchemaEvents(oldSchema, schema);
 
       return new SuccessResponse(schema.getSchemaName() + " successfully added");
     } catch (Exception e) {

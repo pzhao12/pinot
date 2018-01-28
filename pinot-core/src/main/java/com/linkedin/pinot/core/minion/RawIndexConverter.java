@@ -15,6 +15,7 @@
  */
 package com.linkedin.pinot.core.minion;
 
+import com.google.common.base.Preconditions;
 import com.linkedin.pinot.common.data.FieldSpec;
 import com.linkedin.pinot.common.data.MetricFieldSpec;
 import com.linkedin.pinot.common.data.Schema;
@@ -24,16 +25,13 @@ import com.linkedin.pinot.core.common.DataSource;
 import com.linkedin.pinot.core.indexsegment.IndexSegment;
 import com.linkedin.pinot.core.indexsegment.columnar.ColumnarSegmentLoader;
 import com.linkedin.pinot.core.indexsegment.generator.SegmentVersion;
-import com.linkedin.pinot.core.io.compression.ChunkCompressorFactory;
 import com.linkedin.pinot.core.segment.creator.SingleValueRawIndexCreator;
 import com.linkedin.pinot.core.segment.creator.impl.SegmentColumnarIndexCreator;
-import com.linkedin.pinot.core.segment.creator.impl.SegmentIndexCreationDriverImpl;
 import com.linkedin.pinot.core.segment.creator.impl.V1Constants;
 import com.linkedin.pinot.core.segment.index.ColumnMetadata;
 import com.linkedin.pinot.core.segment.index.SegmentMetadataImpl;
 import com.linkedin.pinot.core.segment.index.loader.IndexLoadingConfig;
 import com.linkedin.pinot.core.segment.index.readers.Dictionary;
-import com.linkedin.pinot.core.util.CrcUtils;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -94,6 +92,7 @@ public class RawIndexConverter {
     _columnsToConvert = columnsToConvert;
   }
 
+  @SuppressWarnings("unchecked")
   public boolean convert() throws Exception {
     String segmentName = _originalSegmentMetadata.getName();
     String tableName = _originalSegmentMetadata.getTableName();
@@ -128,21 +127,22 @@ public class RawIndexConverter {
       }
     }
 
+    for (FieldSpec columnToConvert : columnsToConvert) {
+      convertColumn(columnToConvert);
+    }
+
+    // Update optimizations field
+    List optimizations =
+        _convertedProperties.getList(V1Constants.MetadataKeys.Segment.SEGMENT_OPTIMIZATIONS, new ArrayList());
+    Preconditions.checkState(!optimizations.contains(V1Constants.MetadataKeys.Optimization.RAW_INDEX));
+    optimizations.add(V1Constants.MetadataKeys.Optimization.RAW_INDEX);
+    _convertedProperties.setProperty(V1Constants.MetadataKeys.Segment.SEGMENT_OPTIMIZATIONS, optimizations);
+    _convertedProperties.save();
+
     if (columnsToConvert.isEmpty()) {
       LOGGER.info("No column converted for segment: {} in table: {}", segmentName, tableName);
       return false;
     } else {
-      // Convert columns
-      for (FieldSpec columnToConvert : columnsToConvert) {
-        convertColumn(columnToConvert);
-      }
-      _convertedProperties.save();
-
-      // Update creation metadata with new computed CRC and original segment creation time
-      SegmentIndexCreationDriverImpl.persistCreationMeta(_convertedIndexDir,
-          CrcUtils.forAllFilesInFolder(_convertedIndexDir).computeCrc(),
-          _originalSegmentMetadata.getIndexCreationTime());
-
       LOGGER.info("{} columns converted for segment: {} in table: {}", columnsToConvert.size(), segmentName, tableName);
       return true;
     }
@@ -192,8 +192,7 @@ public class RawIndexConverter {
     FieldSpec.DataType dataType = fieldSpec.getDataType();
     int lengthOfLongestEntry = _originalSegmentMetadata.getColumnMetadataFor(columnName).getStringColumnMaxLength();
     try (SingleValueRawIndexCreator rawIndexCreator = SegmentColumnarIndexCreator.getRawIndexCreatorForColumn(
-        _convertedIndexDir, ChunkCompressorFactory.CompressionType.SNAPPY, columnName, dataType,
-        _originalSegmentMetadata.getTotalDocs(), lengthOfLongestEntry)) {
+        _convertedIndexDir, columnName, dataType, _originalSegmentMetadata.getTotalDocs(), lengthOfLongestEntry)) {
       BlockSingleValIterator iterator = (BlockSingleValIterator) dataSource.nextBlock().getBlockValueSet().iterator();
       int docId = 0;
       while (iterator.hasNext()) {

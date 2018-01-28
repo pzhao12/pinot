@@ -15,12 +15,8 @@
  */
 package com.linkedin.pinot.tools.backfill;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linkedin.pinot.common.utils.CommonConstants.Segment.SegmentType;
-import com.linkedin.pinot.common.utils.FileUploadDownloadClient;
-import com.linkedin.pinot.common.utils.TarGzCompressionUtils;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,12 +24,18 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpHost;
-import org.apache.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linkedin.pinot.common.utils.CommonConstants.Segment.SegmentType;
+import com.linkedin.pinot.common.utils.FileUploadUtils;
+import com.linkedin.pinot.common.utils.TarGzCompressionUtils;
 
 /**
  * Contains APIs which are used for backfilling the pinot segments with dateTimeFieldSpec
@@ -153,7 +155,10 @@ public class BackfillSegmentUtils {
   }
 
   /**
-   * Uploads the segment tar to the controller.
+   * Uploads the segment tar to the controller
+   * @param segmentName
+   * @param segmentTar
+   * @return
    */
   public boolean uploadSegment(String segmentName, File segmentDir, File outputDir) {
     boolean success = true;
@@ -163,19 +168,17 @@ public class BackfillSegmentUtils {
     try {
       TarGzCompressionUtils.createTarGzOfDirectory(segmentDir.getAbsolutePath(), segmentTar.getAbsolutePath());
       LOGGER.info("Created tar of {} at {}", segmentDir.getAbsolutePath(), segmentTar.getAbsolutePath());
-      try (FileUploadDownloadClient fileUploadDownloadClient = new FileUploadDownloadClient()) {
-        int statusCode = fileUploadDownloadClient.uploadSegment(
-            FileUploadDownloadClient.getUploadSegmentHttpURI(_controllerHost, Integer.parseInt(_controllerPort)),
-            segmentName, segmentTar);
-        if (statusCode != HttpStatus.SC_OK) {
-          success = false;
-        }
-        LOGGER.info("Uploaded segment: {} and got response status code: {}", segmentName, statusCode);
+      InputStream inputStream = new FileInputStream(segmentTar);
+      int status = FileUploadUtils.sendSegmentFile(_controllerHost, _controllerPort, segmentName, inputStream, segmentTar.length());
+      if (status != 200) {
+        success = false;
       }
+      LOGGER.info("Upload status for {} {}", segmentName, status);
     } catch (Exception e) {
       LOGGER.error("Exception in segment upload {}", segmentTar, e);
       success = false;
     }
     return success;
   }
+
 }

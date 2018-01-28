@@ -16,6 +16,7 @@
 package com.linkedin.pinot.minion.executor;
 
 import com.linkedin.pinot.common.config.PinotTaskConfig;
+import com.linkedin.pinot.minion.MinionContext;
 import javax.annotation.Nonnull;
 
 
@@ -25,9 +26,14 @@ import javax.annotation.Nonnull;
 public interface PinotTaskExecutor {
 
   /**
+   * Set the minion context.
+   */
+  void setMinionContext(@Nonnull MinionContext minionContext);
+
+  /**
    * Execute the task based on the given {@link PinotTaskConfig}.
    */
-  void executeTask(@Nonnull PinotTaskConfig pinotTaskConfig) throws Exception;
+  void executeTask(@Nonnull PinotTaskConfig pinotTaskConfig);
 
   /**
    * Try to cancel the task.

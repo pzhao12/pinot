@@ -2,39 +2,26 @@ import Ember from 'ember';
 import _ from 'lodash';
 import d3 from 'd3';
 
+
 const { get } = Ember;
 
 // TODO: move to utils file
-const getBackgroundColor = function (factor = 0, inverse = false) {
-  if (Number.isNaN(factor)) { return 'rgba(0,0,0,0)'; }
-
-  if (inverse) { factor *= -1; }
-
-  const opacity = Math.min(Math.abs(factor / 0.25), 1.0);
+const getBackgroundColor = function (factor = 0) {
+  const opacity = Math.abs(factor / 0.25);
   const color = factor > 0 ? '0,0,234' : '234,0,0';
 
   return `rgba(${color},${opacity})`;
 };
 
 // TODO: move to utils file
-const getTextColor = function (factor = 0, inverse = false) {
-  if (Number.isNaN(factor)) { return 'rgba(0,0,0,255)'; }
-
-  if (inverse) { factor *= -1; }
-
-  const opacity = Math.min(Math.abs(factor / 0.25), 1.0);
+const getTextColor = function (factor = 0) {
+  const opacity = Math.abs(factor / 0.25);
 
   return opacity < 0.5 ? '#000000' : '#ffffff';
 };
 
 export default Ember.Component.extend({
   cells: null, // {}
-
-  /**
-   * ID Selector of the tooltip
-   * (in application/template.hbs)
-   */
-  tooltipId: '#heatmap-tooltip',
 
   /**
    * Bubbles the click up to the parent component
@@ -67,9 +54,8 @@ export default Ember.Component.extend({
    */
   _buildHeatmap() {
     const {
-      cells,
-      tooltipId
-    } = this.getProperties('cells', 'tooltipId');
+      cells
+    } = this.getProperties('cells');
 
     const dimensions = Object.keys(cells);
     if (!dimensions.length) { return; }
@@ -78,13 +64,17 @@ export default Ember.Component.extend({
       const dimensionPlaceHolderId = `#${dimension}-heatmap-placeholder`;
       const children = cells[dimension]
         .filter(({ size }) => size)
-        .map(cell => {
-          const { size, value } = cell;
-          return Object.assign({}, cell, {
+        .map(({ label, size, value, dimName, dimValue, index, role }) => {
+          return {
+            label,
             value: size,
             size: size,
-            actualValue: value
-          });
+            actualValue: value,
+            dimName,
+            dimValue,
+            role,
+            index
+          };
         });
 
       const domElem = Ember.$(dimensionPlaceHolderId);
@@ -106,48 +96,44 @@ export default Ember.Component.extend({
         .nodes({ name: '0', children: children })
         .filter((node) => !node.children);
 
-      this._createCell(div, nodes, tooltipId);
+      this._createCell(div, nodes);
     });
   },
 
   /**
    * Builds an individual cell based on the provided div and nodes
    */
-  _createCell(div, nodes, tooltipId) {
+  _createCell(div, nodes) {
     const cell = div.selectAll('g')
       .data(nodes)
       .enter()
       .append('svg:g')
-      .attr('class', 'heatmap-chart__cell')
+      .attr('class', 'cell')
       .attr('transform', d => `translate(${d.x},${d.y})`);
 
     // tooltip
     cell.on('mousemove', (d) => {
-      if (d && d.role !== 'value') {
-        return;
-      }
       const tooltipWidth = 200;
       const xPosition = d3.event.pageX - (tooltipWidth + 20);
       const yPosition = d3.event.pageY + 5;
 
-      d3.select(`${tooltipId}`)
+      d3.select('#tooltip')
         .style('left', xPosition + 'px')
         .style('top', yPosition + 'px');
-
-      Object.keys(d).forEach(key => {
-        d3.select(`${tooltipId} #${key}`).text(d[key]);
-      });
-
-      d3.select(`${tooltipId}`).classed('hidden', false);
+      d3.select('#tooltip #heading')
+        .text(d.name);
+      d3.select('#tooltip #currentValue')
+        .text(d.actualValue);
+      d3.select('#tooltip').classed('hidden', false);
     }).on('mouseout', function () {
-      d3.select(`${tooltipId}`).classed('hidden', true);
+      d3.select('#tooltip').classed('hidden', true);
     });
 
     // colored background
     cell.append('svg:rect')
       .attr('width', d => Math.max(d.dx - 1, 0))
       .attr('height', d => Math.max(d.dy - 1, 0))
-      .style('fill', d => getBackgroundColor(d.actualValue, d.inverse));
+      .style('fill', d => getBackgroundColor(d.actualValue));
 
     // colored text
     cell.append('svg:text')
@@ -156,7 +142,7 @@ export default Ember.Component.extend({
       .attr('dy', '.35em')
       .attr('text-anchor', 'middle')
       .text((d) => {
-        const text = d.label || '';
+        const text = d.label;
 
         //each character takes up 7 pixels on an average
         const estimatedTextLength = text.length * 7;
@@ -166,13 +152,7 @@ export default Ember.Component.extend({
           return text;
         }
       })
-      .style('fill', (d) => {
-        // return default color for icons
-        if (d.role !== 'value') {
-          return 'rgba(0,0,0,0.45)';
-        }
-        return getTextColor(d.actualValue, d.inverse)
-      });
+      .style('fill', d => getTextColor(d.actualValue));
 
     cell.on('click', get(this, 'heatmapClickHandler').bind(this));
   },

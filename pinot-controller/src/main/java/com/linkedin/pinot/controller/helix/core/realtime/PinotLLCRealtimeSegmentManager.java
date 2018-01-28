@@ -29,7 +29,6 @@ import com.linkedin.pinot.common.metadata.segment.ColumnPartitionMetadata;
 import com.linkedin.pinot.common.metadata.segment.LLCRealtimeSegmentZKMetadata;
 import com.linkedin.pinot.common.metadata.segment.SegmentPartitionMetadata;
 import com.linkedin.pinot.common.metadata.stream.KafkaStreamMetadata;
-import com.linkedin.pinot.common.metrics.ControllerGauge;
 import com.linkedin.pinot.common.metrics.ControllerMeter;
 import com.linkedin.pinot.common.metrics.ControllerMetrics;
 import com.linkedin.pinot.common.protocols.SegmentCompletionProtocol;
@@ -41,8 +40,8 @@ import com.linkedin.pinot.common.utils.StringUtil;
 import com.linkedin.pinot.common.utils.TarGzCompressionUtils;
 import com.linkedin.pinot.common.utils.helix.HelixHelper;
 import com.linkedin.pinot.common.utils.retry.RetryPolicies;
+import com.linkedin.pinot.common.utils.retry.RetryPolicy;
 import com.linkedin.pinot.controller.ControllerConf;
-import com.linkedin.pinot.controller.api.events.MetadataEventNotifierFactory;
 import com.linkedin.pinot.controller.helix.core.PinotHelixResourceManager;
 import com.linkedin.pinot.controller.helix.core.PinotHelixSegmentOnlineOfflineStateModelGenerator;
 import com.linkedin.pinot.controller.helix.core.PinotTableIdealStateBuilder;
@@ -88,7 +87,6 @@ import org.apache.helix.NotificationContext;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
-import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,7 +99,6 @@ public class PinotLLCRealtimeSegmentManager {
   private static final int NUM_LOCKS = 4;
 
   private static final String METADATA_TEMP_DIR_SUFFIX = ".metadata.tmp";
-  private static final String METADATA_EVENT_NOTIFIER_PREFIX = "metadata.event.notifier";
 
   private static PinotLLCRealtimeSegmentManager INSTANCE = null;
 
@@ -197,12 +194,8 @@ public class PinotLLCRealtimeSegmentManager {
     }
   }
 
-  protected boolean isLeader() {
+  private boolean isLeader() {
     return _helixManager.isLeader();
-  }
-
-  protected boolean isConnected() {
-    return _helixManager.isConnected();
   }
 
   /*
@@ -210,26 +203,39 @@ public class PinotLLCRealtimeSegmentManager {
    * The topic name is being used as a dummy helix resource name. We do not read or write to zk in this
    * method.
    */
-  public void setupHelixEntries(TableConfig tableConfig, KafkaStreamMetadata kafkaStreamMetadata, int nPartitions, final List<String> instanceNames,
-      IdealState idealState, boolean create) {
-
-    final int nReplicas = tableConfig.getValidationConfig().getReplicasPerPartitionNumber();
-    final String topicName = kafkaStreamMetadata.getKafkaTopicName();
-    final String realtimeTableName = tableConfig.getTableName();
-    final int flushSize = PinotLLCRealtimeSegmentManager.getLLCRealtimeTableFlushSize(tableConfig);
-    String realtimeServerTenant =
-        ControllerTenantNameBuilder.getRealtimeTenantNameForTenant(tableConfig.getTenantConfig().getServer());
-//    final List<String> instanceNames = _helixAdmin.getInstancesInClusterWithTag(_clusterName, realtimeServerTenant);
-    final String initialOffset = kafkaStreamMetadata.getKafkaConsumerProperties().get(CommonConstants.Helix.DataSource.Realtime.Kafka.AUTO_OFFSET_RESET);
-
+  public void setupHelixEntries(final String topicName, final String realtimeTableName, int nPartitions,
+      final List<String> instanceNames, int nReplicas, String initialOffset, String bootstrapHosts, IdealState
+      idealState, boolean create, int flushSize) {
     if (nReplicas > instanceNames.size()) {
       throw new PinotHelixResourceManager.InvalidTableConfigException("Replicas requested(" + nReplicas + ") cannot fit within number of instances(" +
           instanceNames.size() + ") for table " + realtimeTableName + " topic " + topicName);
     }
+    /*
+     Due to a bug in auto-rebalance (https://issues.apache.org/jira/browse/HELIX-631)
+     we do the kafka partition allocation with local code in this class.
+    {
+      final String resourceName = topicName;
+
+      List<String> partitions = new ArrayList<>(nPartitions);
+      for (int i = 0; i < nPartitions; i++) {
+        partitions.add(Integer.toString(i));
+      }
+
+      LinkedHashMap<String, Integer> states = new LinkedHashMap<>(2);
+      states.put("OFFLINE", 0);
+      states.put("ONLINE", nReplicas);
+
+      AutoRebalanceStrategy strategy = new AutoRebalanceStrategy(resourceName, partitions, states);
+      znRecord = strategy.computePartitionAssignment(instanceNames, new HashMap<String, Map<String, String>>(0), instanceNames);
+      znRecord.setMapFields(new HashMap<String, Map<String, String>>(0));
+    }
+    */
+
     // Allocate kafka partitions across server instances.
-    ZNRecord znRecord = generatePartitionAssignment(tableConfig, topicName, nPartitions, instanceNames);
+    ZNRecord znRecord = generatePartitionAssignment(topicName, nPartitions, instanceNames, nReplicas);
     writeKafkaPartitionAssignment(realtimeTableName, znRecord);
-    setupInitialSegments(tableConfig, kafkaStreamMetadata, znRecord, idealState, create, flushSize);
+    setupInitialSegments(realtimeTableName, znRecord, topicName, initialOffset, bootstrapHosts, idealState, create,
+        nReplicas, flushSize);
   }
 
   // Remove all trace of LLC for this table.
@@ -265,12 +271,8 @@ public class PinotLLCRealtimeSegmentManager {
     return _propertyStore.get(path, null, AccessOption.PERSISTENT);
   }
 
-  protected void setupInitialSegments(TableConfig tableConfig, KafkaStreamMetadata kafkaStreamMetadata, ZNRecord partitionAssignment,
-      IdealState idealState, boolean create, int flushSize) {
-    final String realtimeTableName = tableConfig.getTableName();
-    final int nReplicas = tableConfig.getValidationConfig().getReplicasPerPartitionNumber();
-    final String initialOffset = kafkaStreamMetadata.getKafkaConsumerProperties().get(CommonConstants.Helix.DataSource.Realtime.Kafka.AUTO_OFFSET_RESET);
-
+  protected void setupInitialSegments(String realtimeTableName, ZNRecord partitionAssignment, String topicName, String
+      initialOffset, String bootstrapHosts, IdealState idealState, boolean create, int nReplicas, int flushSize) {
     List<String> currentSegments = getExistingSegments(realtimeTableName);
     // Make sure that there are no low-level segments existing.
     if (currentSegments != null) {
@@ -303,6 +305,14 @@ public class PinotLLCRealtimeSegmentManager {
       final String segName = llcSegmentName.getSegmentName();
 
       metadata.setCreationTime(now);
+
+      KafkaStreamMetadata kafkaStreamMetadata = null;
+      try {
+        kafkaStreamMetadata = new KafkaStreamMetadata(_tableConfigCache.getTableConfig(realtimeTableName).getIndexingConfig().getStreamConfigs());
+      } catch (Exception e) {
+        LOGGER.error("Problem getting stream configs for table {}", rawTableName);
+        throw new RuntimeException(e);
+      }
 
       final long startOffset = getPartitionOffset(initialOffset, i, kafkaStreamMetadata);
       LOGGER.info("Setting start offset for segment {} to {}", segName, startOffset);
@@ -401,7 +411,7 @@ public class PinotLLCRealtimeSegmentManager {
         }, RetryPolicies.exponentialBackoffRetryPolicy(10, 1000L, 1.2f));
       } catch (Exception e) {
         LOGGER.error("Failed to update idealstate for table {} entries {}", realtimeTableName, idealStateEntries, e);
-        _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEEPER_UPDATE_FAILURES, 1);
+        _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEPER_UPDATE_FAILURES, 1);
         throw e;
       }
     }
@@ -422,7 +432,7 @@ public class PinotLLCRealtimeSegmentManager {
     } catch (Exception e) {
       LOGGER.error("Failed to update idealstate for table {}, old segment {}, new segment {}, newInstances {}",
           realtimeTableName, oldSegmentNameStr, newSegmentNameStr, newInstances, e);
-      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEEPER_UPDATE_FAILURES, 1);
+      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEPER_UPDATE_FAILURES, 1);
       throw e;
     }
   }
@@ -519,28 +529,12 @@ public class PinotLLCRealtimeSegmentManager {
 
   }
 
-  protected boolean writeSegmentsToPropertyStore(String oldZnodePath, String newZnodePath, ZNRecord oldRecord, ZNRecord newRecord,
-      final String realtimeTableName, int expectedVersion) {
-
-    boolean success = _propertyStore.set(oldZnodePath, oldRecord, expectedVersion, AccessOption.PERSISTENT);
-    if (!success) {
-      LOGGER.error("Failed to write old segments to property store for table {}. Expected zookeeper version number: {}",
-          realtimeTableName, expectedVersion);
-      return false;
-    }
-    success = _propertyStore.set(newZnodePath, newRecord, AccessOption.PERSISTENT);
-    if (!success) {
-      LOGGER.error("Failed to write new segments to property store for table {}.", realtimeTableName);
-    }
-    return success;
-  }
-
   protected void writeSegmentsToPropertyStore(List<String> paths, List<ZNRecord> records, final String realtimeTableName) {
     try {
       _propertyStore.setChildren(paths, records, AccessOption.PERSISTENT);
     } catch (Exception e) {
       LOGGER.error("Failed to update idealstate for table {} for paths {}", realtimeTableName, paths, e);
-      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEEPER_UPDATE_FAILURES, 1);
+      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEPER_UPDATE_FAILURES, 1);
       throw e;
     }
   }
@@ -559,13 +553,6 @@ public class PinotLLCRealtimeSegmentManager {
     File baseDir = new File(_controllerConf.getDataDir());
     File tableDir = new File(baseDir, tableName);
     File fileToMoveTo = new File(tableDir, segmentName);
-
-    if (!isConnected() || !isLeader()) {
-      // We can potentially log a different value than what we saw ....
-      LOGGER.warn("Lost leadership while committing segment file {}, {} for table {}: isLeader={}, isConnected={}",
-          segmentName, segmentLocation, tableName, isLeader(), isConnected());
-      return false;
-    }
 
     try {
       com.linkedin.pinot.common.utils.FileUtils.moveFileWithOverwrite(segmentFile, fileToMoveTo);
@@ -605,19 +592,11 @@ public class PinotLLCRealtimeSegmentManager {
     final long now = System.currentTimeMillis();
     final String realtimeTableName = TableNameBuilder.REALTIME.tableNameWithType(rawTableName);
 
-    Stat stat = new Stat();
     final LLCRealtimeSegmentZKMetadata oldSegMetadata = getRealtimeSegmentZKMetadata(realtimeTableName,
-        committingSegmentNameStr, stat);
+        committingSegmentNameStr);
     final LLCSegmentName oldSegmentName = new LLCSegmentName(committingSegmentNameStr);
     final int partitionId = oldSegmentName.getPartitionId();
     final int oldSeqNum = oldSegmentName.getSequenceNumber();
-
-    if (oldSegMetadata.getStatus() != CommonConstants.Segment.Realtime.Status.IN_PROGRESS) {
-      LOGGER.warn("Status of segment metadata {} has already been changed by other controller for table {}: Status={}",
-          committingSegmentNameStr, rawTableName, oldSegMetadata.getStatus());
-      return false;
-    }
-
     oldSegMetadata.setEndOffset(nextOffset);
     oldSegMetadata.setStatus(CommonConstants.Segment.Realtime.Status.DONE);
     oldSegMetadata.setDownloadUrl(
@@ -640,7 +619,7 @@ public class PinotLLCRealtimeSegmentManager {
     // creating a new segment
     if (partitionAssignment == null) {
       LOGGER.warn("Kafka partition assignment not found for {}", realtimeTableName);
-      throw new RuntimeException("Kafka partition assignment not found. Not committing segment");
+      throw new RuntimeException("Kafka partition assigment not found. Not committing segment");
     }
     List<String> newInstances = partitionAssignment.getListField(Integer.toString(partitionId));
 
@@ -662,12 +641,12 @@ public class PinotLLCRealtimeSegmentManager {
 
     final String newZnodePath = ZKMetadataProvider.constructPropertyStorePathForSegment(realtimeTableName, newSegmentNameStr);
 
-    if (!isConnected() || !isLeader()) {
-      // We can potentially log a different value than what we saw ....
-      LOGGER.warn("Lost leadership while committing segment metadata for {} for table {}: isLeader={}, isConnected={}",
-          committingSegmentNameStr, rawTableName, isLeader(), isConnected());
-      return false;
-    }
+    List<String> paths = new ArrayList<>(2);
+    paths.add(oldZnodePath);
+    paths.add(newZnodePath);
+    List<ZNRecord> records = new ArrayList<>(2);
+    records.add(oldZnRecord);
+    records.add(newZnRecord);
     /*
      * Update zookeeper in two steps.
      *
@@ -682,13 +661,7 @@ public class PinotLLCRealtimeSegmentManager {
      * If the controller fails after step-2, we are fine because the idealState has the new segments.
      * If the controller fails before step-1, the server will see this as an upload failure, and will re-try.
      */
-    boolean success = writeSegmentsToPropertyStore(oldZnodePath, newZnodePath, oldZnRecord, newZnRecord,
-        realtimeTableName, stat.getVersion());
-    if (!success) {
-      LOGGER.warn("Fail to write segments to property store for {} for table {}: isLeader={}, isConnected={}",
-          committingSegmentNameStr, rawTableName, isLeader(), isConnected());
-      return false;
-    }
+    writeSegmentsToPropertyStore(paths, records, realtimeTableName);
 
     // TODO Introduce a controller failure here for integration testing
 
@@ -706,10 +679,6 @@ public class PinotLLCRealtimeSegmentManager {
     } finally {
       lock.unlock();
     }
-
-    // Trigger the metadata event notifier
-    notifyOnSegmentFlush(realtimeTableName);
-
     return true;
   }
 
@@ -842,8 +811,8 @@ public class PinotLLCRealtimeSegmentManager {
     }
   }
 
-  public LLCRealtimeSegmentZKMetadata getRealtimeSegmentZKMetadata(String realtimeTableName, String segmentName, Stat stat) {
-    ZNRecord znRecord = _propertyStore.get(ZKMetadataProvider.constructPropertyStorePathForSegment(realtimeTableName, segmentName), stat, AccessOption.PERSISTENT);
+  public LLCRealtimeSegmentZKMetadata getRealtimeSegmentZKMetadata(String realtimeTableName, String segmentName) {
+    ZNRecord znRecord = _propertyStore.get(ZKMetadataProvider.constructPropertyStorePathForSegment(realtimeTableName, segmentName), null, AccessOption.PERSISTENT);
     if (znRecord == null) {
       LOGGER.error("Segment metadata not found for table {}, segment {}. (can happen during table drop)", realtimeTableName, segmentName);
       throw new RuntimeException("Segment metadata not found for table " + realtimeTableName + " segment " + segmentName);
@@ -934,18 +903,17 @@ public class PinotLLCRealtimeSegmentManager {
     return getPartitionOffset(offsetCriteria, partitionId, kafkaStreamMetadata);
   }
 
-  private long getPartitionOffset(final String offsetCriteria, int partitionId,
-      KafkaStreamMetadata kafkaStreamMetadata) {
+  private long getPartitionOffset(final String offsetCriteria, int partitionId, KafkaStreamMetadata kafkaStreamMetadata) {
     KafkaOffsetFetcher kafkaOffsetFetcher = new KafkaOffsetFetcher(offsetCriteria, partitionId, kafkaStreamMetadata);
-    try {
-      RetryPolicies.fixedDelayRetryPolicy(3, 1000L).attempt(kafkaOffsetFetcher);
+    RetryPolicy policy = RetryPolicies.fixedDelayRetryPolicy(3, 1000);
+    boolean success = policy.attempt(kafkaOffsetFetcher);
+    if (success) {
       return kafkaOffsetFetcher.getOffset();
-    } catch (Exception e) {
-      Exception fetcherException = kafkaOffsetFetcher.getException();
-      LOGGER.error("Could not get offset for topic {} partition {}, criteria {}",
-          kafkaStreamMetadata.getKafkaTopicName(), partitionId, offsetCriteria, fetcherException);
-      throw new RuntimeException(fetcherException);
     }
+    Exception e = kafkaOffsetFetcher.getException();
+    LOGGER.error("Could not get offset for topic {} partition {}, criteria {}",
+        kafkaStreamMetadata.getKafkaTopicName(), partitionId, offsetCriteria, e);
+    throw new RuntimeException(e);
   }
 
   /**
@@ -1016,7 +984,7 @@ public class PinotLLCRealtimeSegmentManager {
   private long getBetterStartOffsetIfNeeded(final String realtimeTableName, final int partition,
       final LLCSegmentName latestSegment, final long oldestOffsetInKafka, final int nextSeqNum) {
     final LLCRealtimeSegmentZKMetadata oldSegMetadata =
-        getRealtimeSegmentZKMetadata(realtimeTableName, latestSegment.getSegmentName(), null);
+        getRealtimeSegmentZKMetadata(realtimeTableName, latestSegment.getSegmentName());
     CommonConstants.Segment.Realtime.Status status = oldSegMetadata.getStatus();
     long segmentStartOffset = oldestOffsetInKafka;
     final long prevSegStartOffset = oldSegMetadata.getStartOffset();  // Offset at which the prev segment intended to start consuming
@@ -1133,7 +1101,7 @@ public class PinotLLCRealtimeSegmentManager {
     } catch (Exception e) {
       LOGGER.error("Failed to update idealstate for table {} instance {} segment {}", realtimeTableName, instance,
           segmentNameStr, e);
-      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEEPER_UPDATE_FAILURES, 1);
+      _controllerMetrics.addMeteredGlobalValue(ControllerMeter.LLC_ZOOKEPER_UPDATE_FAILURES, 1);
       throw e;
     }
     LOGGER.info("Successfully marked {} offline for instance {} since it stopped consuming", segmentNameStr, instance);
@@ -1143,10 +1111,10 @@ public class PinotLLCRealtimeSegmentManager {
    * Update the kafka partitions as necessary to accommodate changes in number of replicas, number of tenants or
    * number of kafka partitions. As new segments are assigned, they will obey the new kafka partition assignment.
    *
+   * @param realtimeTableName name of the realtime table
    * @param tableConfig tableConfig from propertystore
    */
-  public void updateKafkaPartitionsIfNecessary(TableConfig tableConfig) {
-    final String realtimeTableName = tableConfig.getTableName();
+  public void updateKafkaPartitionsIfNecessary(String realtimeTableName, TableConfig tableConfig) {
     final ZNRecord partitionAssignment = getKafkaPartitionAssignment(realtimeTableName);
     final Map<String, List<String>> partitionToServersMap = partitionAssignment.getListFields();
     final KafkaStreamMetadata kafkaStreamMetadata = new KafkaStreamMetadata(tableConfig.getIndexingConfig().getStreamConfigs());
@@ -1200,13 +1168,9 @@ public class PinotLLCRealtimeSegmentManager {
     // Generate new kafka partition assignment and update the znode
     if (currentInstances.size() < currentReplicaCount) {
       LOGGER.error("Cannot have {} replicas in {} instances for {}.Not updating partition assignment", currentReplicaCount, currentInstances.size(), realtimeTableName);
-      long numOfInstancesNeeded = currentReplicaCount - currentInstances.size();
-      _controllerMetrics.setValueOfTableGauge(realtimeTableName, ControllerGauge.SHORT_OF_LIVE_INSTANCES, numOfInstancesNeeded);
       return;
-    } else {
-      _controllerMetrics.setValueOfTableGauge(realtimeTableName, ControllerGauge.SHORT_OF_LIVE_INSTANCES, 0);
     }
-    ZNRecord newPartitionAssignment = generatePartitionAssignment(tableConfig, kafkaStreamMetadata.getKafkaTopicName(), currentPartitionCount, currentInstances);
+    ZNRecord newPartitionAssignment = generatePartitionAssignment(kafkaStreamMetadata.getKafkaTopicName(), currentPartitionCount, currentInstances, currentReplicaCount);
     writeKafkaPartitionAssignment(realtimeTableName, newPartitionAssignment);
     LOGGER.info("Successfully updated Kafka partition assignment for table {}", realtimeTableName);
   }
@@ -1232,55 +1196,21 @@ public class PinotLLCRealtimeSegmentManager {
      }
    }
    */
-  private ZNRecord generatePartitionAssignment(TableConfig tableConfig, String topicName, int nPartitions,
-      List<String> instanceNames) {
-    final int nReplicas = tableConfig.getValidationConfig().getReplicasPerPartitionNumber();
+  private ZNRecord generatePartitionAssignment(String topicName, int nPartitions, List<String> instanceNames,
+      int nReplicas) {
     ZNRecord znRecord = new ZNRecord(topicName);
-    /*
-     Due to a bug in auto-rebalance (https://issues.apache.org/jira/browse/HELIX-631)
-     we do the kafka partition allocation with local code in this class.
-    {
-      final String resourceName = topicName;
-
-      List<String> partitions = new ArrayList<>(nPartitions);
-      for (int i = 0; i < nPartitions; i++) {
-        partitions.add(Integer.toString(i));
-      }
-
-      LinkedHashMap<String, Integer> states = new LinkedHashMap<>(2);
-      states.put("OFFLINE", 0);
-      states.put("ONLINE", nReplicas);
-
-      AutoRebalanceStrategy strategy = new AutoRebalanceStrategy(resourceName, partitions, states);
-      znRecord = strategy.computePartitionAssignment(instanceNames, instanceNames, new HashMap<String, Map<String, String>>(0), null);
-      znRecord.setMapFields(new HashMap<String, Map<String, String>>(0));
-    }
-    */
-    {
-      int serverId = 0;
-      for (int p = 0; p < nPartitions; p++) {
-        List<String> instances = new ArrayList<>(nReplicas);
-        for (int r = 0; r < nReplicas; r++) {
-          instances.add(instanceNames.get(serverId++));
-          if (serverId == instanceNames.size()) {
-            serverId = 0;
-          }
+    int serverId = 0;
+    for (int p = 0; p < nPartitions; p++) {
+      List<String> instances = new ArrayList<>(nReplicas);
+      for (int r = 0; r < nReplicas; r++) {
+        instances.add(instanceNames.get(serverId++));
+        if (serverId == instanceNames.size()) {
+          serverId = 0;
         }
-        znRecord.setListField(Integer.toString(p), instances);
       }
+      znRecord.setListField(Integer.toString(p), instances);
     }
     return znRecord;
-  }
-
-  /**
-   * Helper method to trigger metadata event notifier
-   * @param tableName a table name
-   */
-  private void notifyOnSegmentFlush(String tableName) {
-    final MetadataEventNotifierFactory metadataEventNotifierFactory =
-        MetadataEventNotifierFactory.loadFactory(_controllerConf.subset(METADATA_EVENT_NOTIFIER_PREFIX));
-    final TableConfig tableConfig = getRealtimeTableConfig(tableName);
-    metadataEventNotifierFactory.create().notifyOnSegmentFlush(tableConfig);
   }
 
   protected int getKafkaPartitionCount(KafkaStreamMetadata kafkaStreamMetadata) {

@@ -1,19 +1,14 @@
 import Ember from 'ember';
-import { toCurrentUrn, toBaselineUrn, toOffsetUrn, hasPrefix, filterPrefix, toMetricLabel, makeSortable, isInverse, toColorDirection } from 'thirdeye-frontend/helpers/rca-utils';
-import { humanizeChange } from 'thirdeye-frontend/helpers/utils';
+import { toCurrentUrn, toBaselineUrn, hasPrefix, filterPrefix } from '../../../helpers/utils';
 
 const ROOTCAUSE_METRICS_SORT_PROPERTY_METRIC = 'metric';
 const ROOTCAUSE_METRICS_SORT_PROPERTY_DATASET = 'dataset';
 const ROOTCAUSE_METRICS_SORT_PROPERTY_CHANGE = 'change';
-const ROOTCAUSE_METRICS_SORT_PROPERTY_SCORE = 'score';
 
-const ROOTCAUSE_METRICS_OUTPUT_MODE_ASC = 'asc';
-const ROOTCAUSE_METRICS_OUTPUT_MODE_DESC = 'desc';
+const ROOTCAUSE_METRICS_SORT_MODE_ASC = 'asc';
+const ROOTCAUSE_METRICS_SORT_MODE_DESC = 'desc';
 
 export default Ember.Component.extend({
-  //
-  // external properties
-  //
   entities: null, // {}
 
   aggregates: null, // {}
@@ -22,130 +17,61 @@ export default Ember.Component.extend({
 
   onSelection: null, // function (Set, state)
 
-  //
-  // internal properties
-  //
+  sortProperty: null, // ""
 
-  /**
-   * primary property to sort on
-   * @type {string}
-   */
-  sortProperty: ROOTCAUSE_METRICS_SORT_PROPERTY_SCORE,
+  sortMode: null, // ""
 
-  /**
-   * output order
-   * @type {string}
-   */
-  outputMode: ROOTCAUSE_METRICS_OUTPUT_MODE_DESC,
+  init() {
+    this._super(...arguments);
+    this.setProperties({ sortProperty: ROOTCAUSE_METRICS_SORT_PROPERTY_CHANGE, sortMode: ROOTCAUSE_METRICS_SORT_MODE_ASC });
+  },
 
-  /**
-   * Currently selected view within the metrics tab
-   * @type {string}
-   */
-  selectedView: 'card',
-
-  /**
-   * loading status for component
-   * @type {boolean}
-   */
-  isLoading: false,
-
-  /**
-   * List of metric urns, sorted by sortProperty and ordered by outputMode.
-   * @type {Array}
-   */
   urns: Ember.computed(
     'entities',
     'metrics',
     'datasets',
     'changes',
     'sortProperty',
-    'outputMode',
+    'sortMode',
     function () {
-      const { entities, metrics, datasets, changes, scores, sortProperty, outputMode } =
-        this.getProperties('entities', 'metrics', 'datasets', 'changes', 'scores', 'sortProperty', 'outputMode');
+      const { entities, metrics, datasets, changes, sortProperty, sortMode } =
+        this.getProperties('entities', 'metrics', 'datasets', 'changes', 'sortProperty', 'sortMode');
 
       const metricUrns = filterPrefix(Object.keys(entities), ['thirdeye:metric:']);
+      let output = [];
 
-      // sort tuples
-      const tuples = metricUrns.map(urn => Object.assign({}, {
-        metric: metrics[urn],
-        dataset: datasets[urn],
-        change: makeSortable(changes[urn]),
-        score: makeSortable(scores[urn]),
-        urn
-      }));
+      if (sortProperty == ROOTCAUSE_METRICS_SORT_PROPERTY_METRIC) {
+        output = metricUrns.map(urn => [metrics[urn], urn]).sort().map(t => t[1]);
+      }
 
-      const sortedTuples = this._sort(tuples, sortProperty);
+      if (sortProperty == ROOTCAUSE_METRICS_SORT_PROPERTY_DATASET) {
+        output = metricUrns.map(urn => [datasets[urn], urn]).sort().map(t => t[1]);
+      }
 
-      const outputTuples = this._output(sortedTuples, outputMode);
+      if (sortProperty == ROOTCAUSE_METRICS_SORT_PROPERTY_CHANGE) {
+        output = metricUrns.map(urn => [changes[urn], urn]).sort((a, b) => parseFloat(a) - parseFloat(b)).map(t => t[1]);
+      }
 
-      return outputTuples.map(t => t.urn);
+      if (sortMode == ROOTCAUSE_METRICS_SORT_MODE_DESC) {
+        output = output.reverse();
+      }
+
+      return output;
     }
   ),
 
-  /**
-   * Sorts an array of tuples depending on sortProperty.
-   *
-   * @param {Array} tuples sort tuples
-   * @param {String} sortProperty sort property
-   * @returns {Array} sorted tuples
-   * @private
-   */
-  _sort(tuples, sortProperty) {
-    switch(sortProperty) {
-      case ROOTCAUSE_METRICS_SORT_PROPERTY_METRIC:
-        return _.sortBy(tuples, ['metric', 'dataset']);
-      case ROOTCAUSE_METRICS_SORT_PROPERTY_DATASET:
-        return _.sortBy(tuples, ['dataset', 'metric']);
-      case ROOTCAUSE_METRICS_SORT_PROPERTY_CHANGE:
-        return _.sortBy(tuples, ['change', 'metric', 'dataset']);
-      case ROOTCAUSE_METRICS_SORT_PROPERTY_SCORE:
-        return _.sortBy(tuples, ['score', 'change', 'metric', 'dataset']);
-      default:
-        return tuples;
-    }
-  },
-
-  /**
-   * Returns the tuples in natural or reverse order, depending on outputMode.
-   *
-   * @param {Array} tuples (sorted) sort tuples
-   * @param {String} outputMode output mode
-   * @returns {Array} re-ordered tuples
-   * @private
-   */
-  _output(tuples, outputMode) {
-    switch(outputMode) {
-      case ROOTCAUSE_METRICS_OUTPUT_MODE_ASC:
-        return tuples;
-      case ROOTCAUSE_METRICS_OUTPUT_MODE_DESC:
-        return tuples.reverse();
-      default:
-        return tuples;
-    }
-  },
-
-  /**
-   * Metric labels, keyed by urn
-   * @type {Object}
-   */
   metrics: Ember.computed(
     'entities',
     function () {
       const { entities } = this.getProperties('entities');
       return filterPrefix(Object.keys(entities), ['thirdeye:metric:'])
         .reduce((agg, urn) => {
-          agg[urn] = toMetricLabel(urn, entities);
+          agg[urn] = entities[urn].label.split('::')[1].split("_").join(' ');
           return agg;
         }, {});
     }
   ),
 
-  /**
-   * Dataset labels, keyed by metric urn
-   * @type {Object}
-   */
   datasets: Ember.computed(
     'entities',
     function () {
@@ -158,188 +84,37 @@ export default Ember.Component.extend({
     }
   ),
 
-  /**
-   * Change values from baseline to current time range, keyed by metric urn
-   * @type {Object}
-   */
   changes: Ember.computed(
     'entities',
     'aggregates',
     function () {
-      const { entities, aggregates } = this.getProperties('entities', 'aggregates'); // poll observer
-      return this._computeChangesForOffset('baseline');
-    }
-  ),
-
-  /**
-   * Formatted change strings for 'changes'
-   * @type {Object}
-   */
-  changesFormatted: Ember.computed(
-    'changes',
-    function () {
-      const { changes } = this.getProperties('changes');
-      return this._formatChanges(changes);
-    }
-  ),
-
-  /**
-   * Change values from multiple offsets to current time range, keyed by offset, then by metric urn
-   * @type {Object}
-   */
-  changesOffset: Ember.computed(
-    'entities',
-    'aggregates',
-    function () {
-      const { entities, aggregates } = this.getProperties('entities', 'aggregates'); // poll observer
-
-      const offsets = ['wo1w', 'wo2w', 'wo3w', 'wo4w', 'baseline'];
-      const dict = {}
-      offsets.forEach(offset => dict[offset] = this._computeChangesForOffset(offset));
-
-      return dict;
-    }
-  ),
-
-  /**
-   * Formatted change strings for 'changesOffset'
-   * @type {Object}
-   */
-  changesOffsetFormatted: Ember.computed(
-    'changesOffset',
-    function () {
-      const { changesOffset } = this.getProperties('changesOffset');
-
-      const dict = {};
-      Object.keys(changesOffset).forEach(offset => dict[offset] = this._formatChanges(changesOffset[offset]));
-
-      return dict;
-    }
-  ),
-
-  /**
-   * Anomalyity scores, keyed by metric urn
-   */
-  scores: Ember.computed(
-    'entities',
-    function () {
-      const { entities } = this.getProperties('entities');
+      const { entities, aggregates } = this.getProperties('entities', 'aggregates');
       return filterPrefix(Object.keys(entities), ['thirdeye:metric:'])
         .reduce((agg, urn) => {
-          agg[urn] = entities[urn].score.toFixed(2);
+          agg[urn] = aggregates[toCurrentUrn(urn)] / aggregates[toBaselineUrn(urn)] - 1;
           return agg;
         }, {});
     }
   ),
 
-  /**
-   * Trend direction label (positive, neutral, negative) for change values
-   * @type {Object}
-   */
-  directions: Ember.computed(
-    'entities',
+  changesFormatted: Ember.computed(
     'changes',
     function () {
-      const { entities, changes } = this.getProperties('entities', 'changes');
-
+      const { changes } = this.getProperties('changes');
       return Object.keys(changes).reduce((agg, urn) => {
-        agg[urn] = toColorDirection(changes[urn], isInverse(urn, entities));
+        const value = changes[urn];
+        const sign = value > 0 ? '+' : '';
+        if (Math.abs(value) > 5) {
+          agg[urn] = 'spike';
+        } else {
+          agg[urn] = sign + (value * 100).toFixed(2) + '%';
+        }
         return agg;
       }, {});
     }
   ),
 
-  /**
-   * A mapping of each metric and its url(s)
-   * @type {Object} - key is metric urn, and value is an array of objects, each object has a key of the url label,
-   * and value as the url
-   * @example
-   * {
-   *  thirdeye:metric:12345: [],
-   *  thirdeye:metric:23456: [
-   *    {urlLabel: url},
-   *    {urlLabel: url}
-   *  ]
-   * }
-   */
-  links: Ember.computed(
-    'urns',
-    function() {
-      const { urns, entities } = this.getProperties('urns', 'entities');
-      let metricUrlMapping = {};
-
-      urns.forEach(urn => {
-        const attributes = entities[urn].attributes;
-        const { externalUrls = [] } = attributes;
-        let urlArr = [];
-
-        // Add the list of urls for each url type
-        externalUrls.forEach(urlLabel => {
-          urlArr.push({
-            [urlLabel]: attributes[urlLabel][0] // each type should only have 1 url
-          });
-        });
-
-        // Map all the url lists to a metric urn
-        metricUrlMapping[urn] = urlArr;
-      });
-
-      return metricUrlMapping;
-    }
-  ),
-
-  /**
-   * Compute changes from a given offset to the current time range, as a fraction.
-   *
-   * @param {String} offset time range offset, e.g. 'baseline', 'wow', 'wo2w', ...
-   * @returns {Object} change values, keyed by metric urn
-   */
-  _computeChangesForOffset(offset) {
-    const { entities, aggregates } = this.getProperties('entities', 'aggregates');
-    return filterPrefix(Object.keys(entities), ['thirdeye:metric:'])
-      .reduce((agg, urn) => {
-      agg[urn] = aggregates[toCurrentUrn(urn)] / aggregates[toOffsetUrn(urn, offset)] - 1;
-      return agg;
-    }, {});
-  },
-
-  /**
-   * Format changes dict with sign and decimals and gracefully handle outliers
-   *
-   * @param {Object} changes change values, keyed by metric urn
-   * @returns {Object} formatted change strings
-   */
-  _formatChanges(changes) {
-    return Object.keys(changes).reduce((agg, urn) => {
-      const change = changes[urn];
-      if (Number.isNaN(change)) {
-        agg[urn] = '-';
-        return agg;
-      }
-
-      if (Math.abs(change) > 5) {
-        agg[urn] = 'spike';
-        return agg;
-      }
-
-      agg[urn] = humanizeChange(change);
-      return agg;
-    }, {});
-  },
-
   actions: {
-    /**
-     * Sets the selected view for metrics tab
-     * @param {string} selectedView selected view mode
-     */
-    selectView(selectedView) {
-      this.setProperties({ selectedView });
-    },
-
-    /**
-     * Toggles the selection of a metric card on/off
-     * @param {string} urn selected urn
-     */
     toggleSelection(urn) {
       const { selectedUrns, onSelection } = this.getProperties('selectedUrns', 'onSelection');
       if (onSelection) {
@@ -353,26 +128,14 @@ export default Ember.Component.extend({
       }
     },
 
-    /**
-     * Sets the sort property and toggles the output mode to asc/desc on repeated click
-     * @param {string} property selected sortProperty
-     */
     toggleSort(property) {
-      const { sortProperty, outputMode } = this.getProperties('sortProperty', 'outputMode');
-
-      // different sort property
-      if (property !== sortProperty) {
-        // sort asc by default, unless using score
-        const newOutputMode = (property === ROOTCAUSE_METRICS_SORT_PROPERTY_SCORE) ?
-          ROOTCAUSE_METRICS_OUTPUT_MODE_DESC : ROOTCAUSE_METRICS_OUTPUT_MODE_ASC;
-
-        this.setProperties({ sortProperty: property, outputMode: newOutputMode });
-
-      // same property, toggle output mode
+      const { sortProperty, sortMode } = this.getProperties('sortProperty', 'sortMode');
+      if (property != sortProperty) {
+        this.setProperties({ sortProperty: property, sortMode: ROOTCAUSE_METRICS_SORT_MODE_ASC });
       } else {
-        const newOutputMode = (outputMode === ROOTCAUSE_METRICS_OUTPUT_MODE_ASC) ?
-          ROOTCAUSE_METRICS_OUTPUT_MODE_DESC : ROOTCAUSE_METRICS_OUTPUT_MODE_ASC;
-        this.setProperties({ outputMode: newOutputMode });
+        const newSortMode = sortMode == ROOTCAUSE_METRICS_SORT_MODE_ASC ?
+          ROOTCAUSE_METRICS_SORT_MODE_DESC : ROOTCAUSE_METRICS_SORT_MODE_ASC;
+        this.setProperties({ sortMode: newSortMode });
       }
     }
   }

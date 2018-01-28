@@ -37,7 +37,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import org.apache.commons.httpclient.HttpConnectionManager;
 import org.apache.commons.httpclient.MultiThreadedHttpConnectionManager;
-import org.mockito.ArgumentMatchers;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.slf4j.Logger;
@@ -236,7 +235,7 @@ public class TableSizeReaderTest {
           }
         });
 
-    when(helix.getDataInstanceAdminEndpoints(ArgumentMatchers.<String>anySet()))
+    when(helix.getDataInstanceAdminEndpoints(anySet()))
         .thenAnswer(new Answer<Object>() {
           @Override
           public Object answer(InvocationOnMock invocationOnMock)

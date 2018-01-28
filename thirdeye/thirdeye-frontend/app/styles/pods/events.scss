@@ -54,14 +54,11 @@
 
 .events-table {
   &__column {
-    width: 400px;
-    word-break: break-all;
-
     &--checkbox {
       width: 30px;
     }
     &--compact {
-      width: 160px;
+      width: 120px;
     }
   }
 }

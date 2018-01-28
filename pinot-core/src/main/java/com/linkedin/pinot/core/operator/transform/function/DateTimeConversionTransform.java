@@ -77,8 +77,9 @@ public class DateTimeConversionTransform implements TransformFunction {
     String[] outputDateTimeGranularity = input[3].getStringValuesSV();
     String outputGranularity = outputDateTimeGranularity[0];
 
-    DateTimeConvertor dateTimeConvertor =
-        DateTimeConvertorFactory.getDateTimeConvertorFromFormats(inputFormat, outputFormat, outputGranularity);
+    Preconditions.checkArgument(DateTimeFormatSpec.isValidFormat(inputFormat));
+    Preconditions.checkArgument(DateTimeFormatSpec.isValidDateTimeTransformFormat(outputFormat));
+    Preconditions.checkArgument(DateTimeGranularitySpec.isValidGranularity(outputGranularity));
 
     if (_output == null || _output.length < length) {
       _output = new long[Math.max(length, DocIdSetPlanNode.MAX_DOC_PER_CALL)];
@@ -99,6 +100,8 @@ public class DateTimeConversionTransform implements TransformFunction {
       break;
     }
 
+    DateTimeConvertor dateTimeConvertor =
+        DateTimeConvertorFactory.getDateTimeConvertorFromFormats(inputFormat, outputFormat, outputGranularity);
     for (int i = 0; i < Array.getLength(inputValues); i++) {
       _output[i] = dateTimeConvertor.convert(Array.get(inputValues, i));
     }

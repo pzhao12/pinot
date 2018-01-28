@@ -4,19 +4,13 @@
  * @exports create
  */
 import fetch from 'fetch';
+import Ember from 'ember';
 import moment from 'moment';
 import _ from 'lodash';
-import Controller from '@ember/controller';
-import { computed } from '@ember/object';
+import { checkStatus } from 'thirdeye-frontend/helpers/utils';
 import { task, timeout } from 'ember-concurrency';
-import { checkStatus, buildDateEod } from 'thirdeye-frontend/helpers/utils';
 
-export default Controller.extend({
-  /**
-   * Be ready to receive trigger for loading new ux with redirect to alert page
-   */
-  queryParams: ['newUx'],
-  newUx: null,
+export default Ember.Controller.extend({
 
   /**
    * Initialized alert creation page settings
@@ -38,13 +32,10 @@ export default Controller.extend({
   isAlertNameDuplicate: false,
   isFetchingDimensions: false,
   isDimensionFetchDone: false,
-  isProcessingForm: false,
   isEmailError: false,
   isDuplicateEmail: false,
   showGraphLegend: false,
-  redirectToAlertPage: true,
   metricGranularityOptions: [],
-  topDimensions: [],
   originalDimensions: [],
   bsAlertBannerType: 'success',
   graphEmailLinkProps: '',
@@ -61,7 +52,7 @@ export default Controller.extend({
   /**
    * Change this to activate new alert anomaly page redirect
    */
-  isNewUx: Ember.computed.reads('model.isNewUx'),
+  redirectToAlertPage: false,
 
   /**
    * Component property initial settings
@@ -110,127 +101,53 @@ export default Controller.extend({
    */
   patternsOfInterest: ['Up and Down', 'Up only', 'Down only'],
 
-  /**
-   * Options for sensitivity field, previously 'Robust', 'Medium', 'Sensitive'
-   */
-  sensitivityOptions: ['Robust (Low)', 'Medium', 'Sensitive (High)'],
 
   /**
-   * Mapping user readable pattern and sensitivity to DB values
+   * Options for sensitivity field
    */
-  optionMap: {
-    pattern: {
-      'Up and Down': 'UP,DOWN',
-      'Up only': 'UP',
-      'Down only': 'DOWN'
-    },
-    sensitivity: {
-      'Robust (Low)': 'LOW',
-      'Medium': 'MEDIUM',
-      'Sensitive (High)': 'HIGH'
-    },
-    severity: {
-      'Percentage of Change': 'weight',
-      'Absolute Value of Change': 'deviation'
-    }
+  sensitivityOptions: ['Robust', 'Medium', 'Sensitive'],
+
+  /**
+   * Mapping user readable sensitivity to be values
+   */
+  sensitivityMapping: {
+    Robust: 'LOW',
+    Medium: 'MEDIUM',
+    Sensitive: 'HIGH'
   },
-
-  /**
-   * Severity display options (power-select) and values
-   * @type {Object}
-   */
-  tuneSeverityOptions: computed(
-    'optionMap.severity',
-    function() {
-      const severityOptions = Object.keys(this.get('optionMap.severity'));
-      return severityOptions;
-    }
-  ),
-
-  /**
-   * Conditionally display '%' based on selected severity option
-   * @type {String}
-   */
-  sensitivityUnits: computed('selectedSeverityOption', function() {
-    const chosenSeverity = this.get('selectedSeverityOption');
-    const isNotPercent = chosenSeverity && chosenSeverity.includes('Absolute');
-    return isNotPercent ? '' : '%';
-  }),
-
-  /**
-   * Builds the new autotune filter from custom tuning options
-   * @type {String}
-   */
-  alertFilterObj: computed(
-    'selectedSeverityOption',
-    'customPercentChange',
-    'customMttdChange',
-    'selectedPattern',
-    function() {
-      const {
-        severity: severityMap,
-        pattern: patternMap
-      } = this.getProperties('optionMap').optionMap;
-
-      const {
-        selectedPattern,
-        customMttdChange,
-        customPercentChange,
-        selectedSeverityOption: selectedSeverity
-      } = this.getProperties('selectedPattern', 'customMttdChange', 'customPercentChange', 'selectedSeverityOption');
-
-      const requiredProps = ['customMttdChange', 'customPercentChange', 'selectedSeverityOption'];
-      const isCustomFilterPossible = requiredProps.every(val => Ember.isPresent(this.get(val)));
-      const filterObj = { pattern: patternMap[selectedPattern] };
-
-      if (isCustomFilterPossible) {
-        const mttdVal = Number(customMttdChange).toFixed(2);
-        const severityThresholdVal = (Number(customPercentChange)/100).toFixed(2);
-        // NOTE: finalStr will be used in next iteration
-        // const finalStr = `&features=${encodeURIComponent(featureString)}&mttd=${encodeURIComponent(mttdString)}${patternString}`;
-        Object.assign(filterObj, {
-          features: `window_size_in_hour,${severityMap[selectedSeverity]}`,
-          mttd: `window_size_in_hour=${mttdVal};${severityMap[selectedSeverity]}=${severityThresholdVal}`
-        });
-      }
-
-      return filterObj;
-    }
-  ),
-
-  /**
-   * All selected dimensions to be loaded into graph
-   * @returns {Array}
-   */
-  selectedDimensions: computed(
-    'topDimensions',
-    'topDimensions.@each.isSelected',
-    function() {
-      return this.get('topDimensions').filterBy('isSelected');
-    }
-  ),
 
   /**
    * Setting default sensitivity if selectedSensitivity is undefined
    * @returns {String}
    */
-  sensitivityWithDefault: computed(
+  sensitivityWithDefault: Ember.computed(
     'selectedSensitivity',
     'selectedGranularity',
     function() {
       let {
-        selectedSensitivity,
-        selectedGranularity
+       selectedSensitivity,
+       selectedGranularity
       } =  this.getProperties('selectedSensitivity', 'selectedGranularity');
 
       if (!selectedSensitivity) {
         const isDailyOrHourly = ['DAYS', 'HOURS'].includes(selectedGranularity);
-        selectedSensitivity = isDailyOrHourly ? 'Sensitive (High)' : 'Medium';
+        selectedSensitivity = isDailyOrHourly
+          ? 'Sensitive'
+          : 'Medium';
       }
 
-      return this.optionMap.sensitivity[selectedSensitivity];
+      return this.sensitivityMapping[selectedSensitivity];
     }
   ),
+
+  /**
+   * Mapping user readable pattern to be values
+   */
+  patternMapping: {
+    'Up and Down': 'UP,DOWN',
+    'Up only': 'UP',
+    'Down only': 'DOWN'
+  },
 
   weeklyEffectOptions: [true, false],
   /**
@@ -423,7 +340,7 @@ export default Controller.extend({
     const dimension = selectedDimension || 'All';
     const currentEnd = moment(maxTime).isValid()
       ? moment(maxTime).valueOf()
-      : buildDateEod(1, 'day').valueOf();
+      : moment().subtract(1, 'day').endOf('day').valueOf();
     const currentStart = moment(currentEnd).subtract(1, 'months').valueOf();
     const baselineStart = moment(currentStart).subtract(1, 'week').valueOf();
     const baselineEnd = moment(currentEnd).subtract(1, 'week');
@@ -456,10 +373,8 @@ export default Controller.extend({
     this.fetchAnomalyGraphData(graphConfig).then(metricData => {
       if (!this.isMetricGraphable(metricData)) {
         // Metric has no data. not graphing
-        this.setProperties({
-          isMetricDataInvalid: true,
-          isMetricDataLoading: false
-        });
+        this.clearAll();
+        this.set('isMetricDataInvalid', true);
       } else {
         // Dimensions are selected. Compile, rank, and send them to the graph.
         if(selectedDimension) {
@@ -472,20 +387,19 @@ export default Controller.extend({
                 isMetricDataLoading: false,
                 topDimensions: orderedDimensions
               });
-            })
-            .catch(() => {
-              this.set('isMetricDataLoading', false);
             });
+        } else {
+          this.set('isMetricDataLoading', false);
         }
         // Metric has data. now sending new data to graph.
         this.setProperties({
           isMetricSelected: true,
-          isMetricDataLoading: false,
           showGraphLegend: Ember.isPresent(selectedDimension),
           selectedMetric: Object.assign(metricData, { color: 'blue' })
         });
       }
-    }).catch((error) => {
+    })
+    .catch((error) => {
       // The request failed. No graph to render.
       this.clearAll();
       this.setProperties({
@@ -527,14 +441,13 @@ export default Controller.extend({
           topDimensions = filteredDimensions.sortBy('score').reverse().slice(0, maxSize);
           topDimensionLabels = [...new Set(topDimensions.map(key => key.label.split('=')[1]))];
           // Build the array of subdimension objects for the selected dimension
-          for (let subDimension of topDimensionLabels) {
+          for(let subDimension of topDimensionLabels){
             if (subDimension && dimensionObj[subDimension]) {
               dimensionList.push({
                 name: subDimension,
                 color: colors[colorIndex],
                 baselineValues: dimensionObj[subDimension].baselineValues,
-                currentValues: dimensionObj[subDimension].currentValues,
-                isSelected: true
+                currentValues: dimensionObj[subDimension].currentValues
               });
               colorIndex++;
             }
@@ -557,25 +470,70 @@ export default Controller.extend({
   },
 
   /**
-   * Generate the URL needed to trigger replay for new alert
-   * @method buildReplayUrl
-   * @param {Number} functionId - the newly created function's id
-   * @return {String}
+   * Replay Flow Step 2 - Replay cloned function
+   * @method callReplayStart
+   * @param {Number} clonedId - id of the cloned function
+   * @param {Object} startTime - replay start time stamp
+   * @param {Object} endTime - replay end time stamp
+   * @return {Ember.RSVP.Promise}
    */
-  buildReplayUrl(functionId) {
-    const replayDateFormat = "YYYY-MM-DDTHH:mm:ss.SSS[Z]";
-    const startTime = buildDateEod(1, 'month').format(replayDateFormat);
-    const endTime = buildDateEod(1, 'day').format(replayDateFormat);
+  callReplayStart(functionId, startTime, endTime) {
     const granularity = this.get('graphConfig.granularity').toLowerCase();
     const speedUp = !(granularity.includes('hour') || granularity.includes('day'));
     const recipients = this.get('selectedConfigGroup.recipients');
     const sensitivity = this.get('sensitivityWithDefault');
     const selectedPattern = this.get('selectedPattern');
-    const pattern = this.optionMap.pattern[selectedPattern];
+    const pattern = this.patternMapping[selectedPattern];
 
-    return `/detection-job/${functionId}/notifyreplaytuning?start=${startTime}` +
+
+    const url = `/detection-job/${functionId}/notifyreplaytuning?start=${startTime}` +
       `&end=${endTime}&speedup=${speedUp}&userDefinedPattern=${pattern}&sensitivity=${sensitivity}` +
       `&removeAnomaliesInWindow=true&removeAnomaliesInWindow=true&to=${recipients}`;
+
+    return fetch(url, { method: 'post' })
+      .then((res) => checkStatus(res, 'post'))
+      .catch((error) => {
+        this.setProperties({
+          isReplayStatusError: true,
+          isReplayStatusPending: false,
+          bsAlertBannerType: 'danger',
+          replayStatusClass: 'te-form__banner--failure',
+          failureMessage: `The replay sequence has been interrupted. (${error})`
+        });
+      });
+  },
+
+  /**
+   * Sends a request to begin advanced replay for a metric. The replay will fetch new
+   * time-series data based on user-selected sensitivity settings.
+   * @method triggerReplay
+   * @param {Number} newFuncId - the id for the newly created function (alert)
+   * @return {Ember.RSVP.Promise}
+   */
+  triggerReplay(newFuncId) {
+    const startTime = moment().subtract(1, 'month').endOf('day').utc().format("YYYY-MM-DDTHH:mm:ss.SSS[Z]");
+    const endTime = moment().subtract(1, 'day').endOf('day').utc().format("YYYY-MM-DDTHH:mm:ss.SSS[Z]");
+    const that = this;
+
+    // Set banner to 'pending' state
+    this.setProperties({
+      isReplayStarted: true,
+      isReplayStatusPending: true
+    });
+
+    // Begin triggering of replay sequence
+    this.callReplayStart(newFuncId, startTime, endTime);
+
+    // Simulate trigger response time since currently response takes 30+ seconds
+    Ember.run.later((function() {
+      if (!that.get('isReplayStatusError')) {
+        that.setProperties({
+          isReplayStatusSuccess: true,
+          isReplayStatusPending: false,
+          replayStatusClass: 'te-form__banner--success'
+        });
+      }
+    }), 3000);
   },
 
   /**
@@ -621,7 +579,7 @@ export default Controller.extend({
    * @method isAlertGroupEditModeActive
    * @return {Boolean}
    */
-  isAlertGroupEditModeActive: computed(
+  isAlertGroupEditModeActive: Ember.computed(
     'selectedConfigGroup',
     'newConfigGroupName',
     function() {
@@ -634,7 +592,7 @@ export default Controller.extend({
    * @method isFilterSelectDisabled
    * @return {Boolean}
    */
-  isFilterSelectDisabled: computed(
+  isFilterSelectDisabled: Ember.computed(
     'filters',
     'isMetricSelected',
     function() {
@@ -647,7 +605,7 @@ export default Controller.extend({
    * @method isGranularitySelectDisabled
    * @return {Boolean}
    */
-  isGranularitySelectDisabled: computed(
+  isGranularitySelectDisabled: Ember.computed(
     'granularities',
     'isMetricSelected',
     function() {
@@ -661,7 +619,7 @@ export default Controller.extend({
    * @param {Number} metricId - Id of selected metric to graph
    * @return {Boolean} PreventSubmit
    */
-  isSubmitDisabled: computed(
+  isSubmitDisabled: Ember.computed(
     'selectedMetricOption',
     'selectedPattern',
     'selectedWeeklyEffect',
@@ -672,27 +630,10 @@ export default Controller.extend({
     'alertGroupNewRecipient',
     'isAlertNameDuplicate',
     'isGroupNameDuplicate',
-    'isProcessingForm',
     function() {
       let isDisabled = false;
-      const {
-        requiredFields,
-        isProcessingForm,
-        newConfigGroupName,
-        isAlertNameDuplicate,
-        isGroupNameDuplicate,
-        alertGroupNewRecipient,
-        selectedConfigGroup: groupRecipients,
-      } = this.getProperties(
-        'requiredFields',
-        'isProcessingForm',
-        'newConfigGroupName',
-        'isAlertNameDuplicate',
-        'isGroupNameDuplicate',
-        'alertGroupNewRecipient',
-        'selectedConfigGroup'
-      );
-      const hasRecipients = _.has(groupRecipients, 'recipients');
+      const requiredFields = this.get('requiredFields');
+      const groupRecipients = this.get('selectedConfigGroup.recipients');
       // Any missing required field values?
       for (var field of requiredFields) {
         if (Ember.isBlank(this.get(field))) {
@@ -700,19 +641,16 @@ export default Controller.extend({
         }
       }
       // Enable submit if either of these field values are present
-      if (Ember.isBlank(groupRecipients) && Ember.isBlank(newConfigGroupName)) {
+      if (Ember.isBlank(this.get('selectedConfigGroup')) && Ember.isBlank(this.get('newConfigGroupName'))) {
         isDisabled = true;
       }
+
       // Duplicate alert Name or group name
-      if (isAlertNameDuplicate || isGroupNameDuplicate) {
+      if (this.get('isAlertNameDuplicate') || this.get('isGroupNameDuplicate')) {
         isDisabled = true;
       }
       // For alert group email recipients, require presence only if group recipients is empty
-      if (Ember.isBlank(alertGroupNewRecipient) && !hasRecipients) {
-        isDisabled = true;
-      }
-      // Disable after submit clicked
-      if (isProcessingForm) {
+      if (Ember.isBlank(this.get('alertGroupNewRecipient')) && !groupRecipients) {
         isDisabled = true;
       }
       return isDisabled;
@@ -726,7 +664,7 @@ export default Controller.extend({
    * @return {Boolean} whether errors were found
    */
   isEmailValid(emailArr) {
-    const emailRegex = /^.{3,}@linkedin.com$/;
+    const emailRegex = /^.{3,}\@linkedin.com$/;
     let isValid = true;
 
     for (var email of emailArr) {
@@ -761,28 +699,18 @@ export default Controller.extend({
    * @param {Object} selectedMetricOption - the selected metric's properties
    * @return {Object} New function object
    */
-  newAlertProperties: computed(
+  newAlertProperties: Ember.computed(
     'alertFunctionName',
     'selectedMetricOption',
     'selectedDimension',
     'selectedFilters',
-    'selectedPattern',
     'selectedGranularity',
-    'selectedWeeklyEffect',
-    'sensitivityWithDefault',
     function() {
       let gkey = '';
-      let mergedProps = {};
       const granularity = this.get('graphConfig.granularity').toLowerCase();
-      const pattern = encodeURIComponent(this.get('selectedPattern'));
-      const sensitivity = encodeURIComponent(this.get('sensitivityWithDefault'));
-
-      const {
-        selectedFilters,
-        selectedDimension,
-        selectedWeeklyEffect: weeklyEffect
-      } = this.getProperties('selectedFilters', 'selectedDimension', 'selectedWeeklyEffect');
-
+      const selectedFilter = this.get('selectedFilters');
+      const selectedDimension = this.get('selectedDimension');
+      const weeklyEffect = this.get('selectedWeeklyEffect');
       const settingsByGranularity = {
         common: {
           functionName: this.get('alertFunctionName') || this.get('alertFunctionName').trim(),
@@ -824,16 +752,11 @@ export default Controller.extend({
       if (granularity.includes('day')) { gkey = 'day'; }
 
       // Add filter and dimension choices if available
-      if (Ember.isPresent(selectedFilters)) {
-        settingsByGranularity.common.filters = selectedFilters;
+      if (Ember.isPresent(selectedFilter)) {
+        settingsByGranularity.common.filters = selectedFilter;
       }
       if (Ember.isPresent(selectedDimension)) {
         settingsByGranularity.common.exploreDimension = selectedDimension;
-      }
-
-      // Append extra props to preserve in the alert record
-      if (gkey) {
-        settingsByGranularity[gkey].properties += `;pattern=${encodeURIComponent(pattern)};sensitivity=${encodeURIComponent(sensitivity)}`;
       }
 
       return Object.assign(settingsByGranularity.common, settingsByGranularity[gkey]);
@@ -847,7 +770,7 @@ export default Controller.extend({
    * @param {Object} selectedApplication - user-selected application object
    * @return {Array} activeGroups - filtered list of groups that are active
    */
-  filteredConfigGroups: computed(
+  filteredConfigGroups: Ember.computed(
     'selectedApplication',
     function() {
       const appName = this.get('selectedApplication');
@@ -867,7 +790,7 @@ export default Controller.extend({
    * @method graphMessageText
    * @return {String} the appropriate graph placeholder text
    */
-  graphMessageText: computed(
+  graphMessageText: Ember.computed(
     'isMetricDataInvalid',
     function() {
       const defaultMsg = 'Once a metric is selected, the metric replay graph will show here';
@@ -881,7 +804,7 @@ export default Controller.extend({
    * @method graphMailtoLink
    * @return {String} the URI-encoded mailto link
    */
-  graphMailtoLink: computed(
+  graphMailtoLink: Ember.computed(
     'selectedMetricOption',
     function() {
       const selectedMetric = this.get('selectedMetricOption');
@@ -899,7 +822,7 @@ export default Controller.extend({
    * @method selectedConfigGroupSubtitle
    * @return {String} title of expandable section for selected config group
    */
-  selectedConfigGroupSubtitle: computed(
+  selectedConfigGroupSubtitle: Ember.computed(
     'selectedConfigGroup',
     function () {
       return `Alerts Monitored by: ${this.get('selectedConfigGroup.name')}`;
@@ -935,7 +858,6 @@ export default Controller.extend({
       selectedGroupRecipients: null,
       isCreateAlertSuccess: null,
       isCreateAlertError: false,
-      isProcessingForm: false,
       isCreateGroupSuccess: false,
       isReplayStatusSuccess: false,
       isReplayStarted: false,
@@ -955,14 +877,6 @@ export default Controller.extend({
    */
   actions: {
 
-
-    /**
-     * Handles the primary metric selection in the alert creation
-     */
-    onPrimaryMetricToggle() {
-      return;
-    },
-
     /**
      * When a metric is selected, fetch its props, and send them to the graph builder
      * @method onSelectMetric
@@ -973,7 +887,7 @@ export default Controller.extend({
       this.clearAll();
       this.setProperties({
         isMetricDataLoading: true,
-        topDimensions: [],
+        topDimensions: null,
         selectedMetricOption: selectedObj
       });
       this.fetchMetricData(selectedObj.id)
@@ -1188,16 +1102,6 @@ export default Controller.extend({
     },
 
     /**
-     * Enable reaction to dimension toggling in graph legend component
-     * @method onSelection
-     * @return {undefined}
-     */
-    onSelection(selectedDimension) {
-      const { isSelected } = selectedDimension;
-      Ember.set(selectedDimension, 'isSelected', !isSelected);
-    },
-
-    /**
      * User hits submit... Buckle up - we're going for a ride! What we have to do here is:
      *  1. Make sure all fields are validated (done inline and with computed props)
      *  2. Disable submit button
@@ -1222,11 +1126,12 @@ export default Controller.extend({
 
       // This object contains the data for the new alert function, with default fillers
       const {
-        redirectToAlertPage,
         newAlertProperties: newFunctionObj,
         selectedGroupRecipients: oldEmails,
         alertGroupNewRecipient: newEmails
-      } = this.getProperties('redirectToAlertPage', 'newAlertProperties', 'selectedGroupRecipients', 'alertGroupNewRecipient');
+      } = this.getProperties('newAlertProperties', 'selectedGroupRecipients', 'alertGroupNewRecipient');
+
+      const redirectToAlertPage = this.get('redirectToAlertPage');
       const newEmailsArr = newEmails ? newEmails.replace(/ /g, '').split(',') : [];
       const existingEmailsArr = oldEmails ? oldEmails.replace(/ /g, '').split(',') : [];
       const newRecipientsArr = newEmailsArr.length ? existingEmailsArr.concat(newEmailsArr) : existingEmailsArr;
@@ -1251,9 +1156,6 @@ export default Controller.extend({
       // URL encode filters to avoid API issues
       newFunctionObj.filters = encodeURIComponent(newFunctionObj.filters);
 
-      // Add selected severity options to alert function
-      newFunctionObj.alertFilter = this.get('alertFilterObj');
-
       // First, save our new alert function.
       this.saveThirdEyeFunction(newFunctionObj).then(newFunctionId => {
 
@@ -1272,17 +1174,51 @@ export default Controller.extend({
         finalConfigObj.emailConfig.functionIds.push(newFunctionId);
 
         // Finally, save our Alert Config Groupg
-        this.saveThirdEyeEntity(finalConfigObj, 'ALERT_CONFIG')
-          .then(alertResult => {
-            // Start the replay sequence and transition to Alert Page
-            this.send('triggerReplaySequence', newFunctionId);
+        this.saveThirdEyeEntity(finalConfigObj, 'ALERT_CONFIG').then(alertResult => {
+          // Display success confirmations including new alert Id and recipients
+          this.setProperties({
+            selectedGroupRecipients: finalConfigObj.recipients.replace(/,+/g, ', '),
+            isCreateAlertSuccess: true,
+            finalFunctionId: newFunctionId
+          });
+          // Confirm group creation if not in group edit mode
+          if (!isEditGroupMode) {
+            this.set('isCreateGroupSuccess', true);
+          }
+          // Display function added to group confirmation
+          this.prepareFunctions(finalConfigObj, newFunctionId).then(functionData => {
+            this.set('selectedGroupFunctions', functionData);
+          });
+          // Trigger alert replay here if alert page redirect not active
+          if (!redirectToAlertPage) {
+            this.triggerReplay(newFunctionId);
+          }
+          // Now, disable form
+          this.setProperties({
+            isFormDisabled: true,
+            isMetricSelected: false,
+            isMetricDataInvalid: false
+          });
+          return newFunctionId;
+        })
+        // Redirects to manage alerts
+        .then((id) => {
+          if (redirectToAlertPage) {
+            // Redirect to onboarding page to trigger wrapper
+            this.transitionToRoute('manage.alert', id, { queryParams: { replay: true }});
+          } else {
+            // Navigate to alerts search view
+            this.transitionToRoute('manage.alerts.edit', id);
+          }
+        })
         // If Alert Group edit/create fails, remove the orphaned anomaly Id
-        }).catch((error) => {
+        .catch((error) => {
           this.setAlertCreateErrorState(error);
           this.removeThirdEyeFunction(newFunctionId);
         });
+      })
       // Alert creation call has failed
-      }).catch((error) => {
+      .catch((error) => {
         this.setAlertCreateErrorState(error);
       });
     }

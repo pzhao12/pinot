@@ -1,10 +1,13 @@
 package com.linkedin.thirdeye.dashboard.resources.v2;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +21,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import javax.validation.constraints.NotNull;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -30,7 +32,7 @@ import javax.ws.rs.core.MediaType;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.text.StrSubstitutor;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Period;
@@ -58,7 +60,6 @@ import com.linkedin.thirdeye.api.TimeGranularity;
 import com.linkedin.thirdeye.api.TimeRange;
 import com.linkedin.thirdeye.api.TimeSpec;
 import com.linkedin.thirdeye.constant.AnomalyFeedbackType;
-import com.linkedin.thirdeye.constant.AnomalyResultSource;
 import com.linkedin.thirdeye.dashboard.Utils;
 import com.linkedin.thirdeye.dashboard.resources.v2.pojo.AnomaliesSummary;
 import com.linkedin.thirdeye.dashboard.resources.v2.pojo.AnomaliesWrapper;
@@ -77,7 +78,6 @@ import com.linkedin.thirdeye.datalayer.dto.DatasetConfigDTO;
 import com.linkedin.thirdeye.datalayer.dto.GroupedAnomalyResultsDTO;
 import com.linkedin.thirdeye.datalayer.dto.MergedAnomalyResultDTO;
 import com.linkedin.thirdeye.datalayer.dto.MetricConfigDTO;
-import com.linkedin.thirdeye.datalayer.dto.RawAnomalyResultDTO;
 import com.linkedin.thirdeye.datalayer.pojo.AlertConfigBean;
 import com.linkedin.thirdeye.datalayer.pojo.MetricConfigBean;
 import com.linkedin.thirdeye.datasource.DAORegistry;
@@ -431,101 +431,6 @@ public class AnomaliesResource {
     }
   }
 
-  /**
-   * Create a user-reported anomaly
-   *
-   * @param anomalyFunctionId anomaly function id (must exist)
-   * @param startTime start time utc (in millis)
-   * @param endTime end time utc (in millis)
-   * @param feedbackType anomaly feedback type
-   * @param comment anomaly feedback comment (optional)
-   * @param dimensionsJson dimension map json string (optional)
-   * @throws IllegalArgumentException if the anomaly function id cannot be found
-   * @throws IllegalArgumentException if the anomaly cannot be stored
-   */
-  @POST
-  @Path(value = "/reportAnomaly/{anomalyFunctionId}")
-  public void createUserAnomaly(@PathParam("anomalyFunctionId") long anomalyFunctionId,
-      @QueryParam("startTime") Long startTime,
-      @QueryParam("endTime") Long endTime,
-      @QueryParam("feedbackType") AnomalyFeedbackType feedbackType,
-      @QueryParam("comment") String comment,
-      @QueryParam("dimensionsJson") String dimensionsJson) {
-
-    AnomalyFunctionDTO anomalyFunction = anomalyFunctionDAO.findById(anomalyFunctionId);
-    if (anomalyFunction == null) {
-      throw new IllegalArgumentException(String.format("Could not resolve anomaly function id %d", anomalyFunctionId));
-    }
-
-    MergedAnomalyResultDTO anomaly = new MergedAnomalyResultDTO();
-    anomaly.setFunction(anomalyFunction);
-    anomaly.setStartTime(startTime);
-    anomaly.setEndTime(endTime);
-    anomaly.setDimensions(new DimensionMap(dimensionsJson != null ? dimensionsJson : "{}"));
-    anomaly.setAnomalyResultSource(AnomalyResultSource.USER_LABELED_ANOMALY);
-    anomaly.setMetric(anomalyFunction.getTopicMetric());
-    anomaly.setCollection(anomalyFunction.getCollection());
-    anomaly.setProperties(Collections.<String, String>emptyMap());
-    anomaly.setAnomalyResults(Collections.<RawAnomalyResultDTO>emptyList());
-
-    if (mergedAnomalyResultDAO.save(anomaly) == null) {
-      throw new IllegalArgumentException(String.format("Could not store user reported anomaly: '%s'", anomaly));
-    }
-
-    // TODO fix feedback not being saved on create by DAO
-    AnomalyFeedbackDTO feedback = new AnomalyFeedbackDTO();
-    feedback.setFeedbackType(feedbackType);
-    feedback.setComment(comment);
-
-    anomaly.setFeedback(feedback);
-
-    mergedAnomalyResultDAO.updateAnomalyFeedback(anomaly);
-  }
-
-  /**
-   * Update anomaly feedback for all anomalies of a specific anomaly function within a time range.
-   *
-   * @param startTime start time utc (in millis)
-   * @param endTime end time utc (in millis)
-   * @param functionId anomaly function id
-   * @param dimensionMapJSONString if specified, only update feedback of the anomalies on the same dimension
-   * @param feedbackType feedback type
-   */
-  @POST
-  @Path(value = "/updateFeedbackRange/{startTime}/{endTime}/{functionId}")
-  public void updateFeedbackForAnomalyFunctionAndTimeRange(
-      @PathParam("startTime") @NotNull Long startTime,
-      @PathParam("endTime") @NotNull Long endTime,
-      @PathParam("functionId") @NotNull Long functionId,
-      @QueryParam("dimensionMap") @DefaultValue("") String dimensionMapJSONString,
-      @QueryParam("feedbackType") @NotNull String feedbackType) {
-
-    DimensionMap dimension = new DimensionMap();
-    if (StringUtils.isNotEmpty(dimensionMapJSONString)) {
-      dimension = new DimensionMap(dimensionMapJSONString);
-    }
-    // fetch anomalies
-    List<MergedAnomalyResultDTO> anomalies = mergedAnomalyResultDAO.findByFunctionId(functionId, false);
-
-    // apply feedback
-    for (MergedAnomalyResultDTO anomaly : anomalies) {
-      if (anomaly.getStartTime() < endTime && startTime < anomaly.getEndTime()
-          && anomaly.getDimensions().equals(dimension)) {
-        LOG.info("Updating feedback for anomaly id {}", anomaly.getId());
-
-        AnomalyFeedback feedback = anomaly.getFeedback();
-        if (feedback == null) {
-          feedback = new AnomalyFeedbackDTO();
-        }
-
-        feedback.setFeedbackType(AnomalyFeedbackType.valueOf(feedbackType));
-        anomaly.setFeedback(feedback);
-
-        mergedAnomalyResultDAO.updateAnomalyFeedback(anomaly);
-      }
-    }
-  }
-
   // ----------- HELPER FUNCTIONS
 
   /**
@@ -762,7 +667,69 @@ public class AnomaliesResource {
   }
 
   private String getExternalURL(MergedAnomalyResultDTO mergedAnomaly) {
-    return new JSONObject(ResourceUtils.getExternalURLs(mergedAnomaly, this.metricConfigDAO)).toString();
+
+    String metric = mergedAnomaly.getMetric();
+    String dataset = mergedAnomaly.getCollection();
+    MetricConfigDTO metricConfigDTO = metricConfigDAO.findByMetricAndDataset(metric, dataset);
+    Map<String, String> urlTemplates = metricConfigDTO.getExtSourceLinkInfo();
+    if (MapUtils.isEmpty(urlTemplates)) {
+      return "";
+    }
+
+    // Construct context for substituting the keywords in URL template
+    Map<String, String> context = new HashMap<>();
+    // context for each pair of dimension name and value
+    if (MapUtils.isNotEmpty(mergedAnomaly.getDimensions())) {
+      for (Map.Entry<String, String> entry : mergedAnomaly.getDimensions().entrySet()) {
+        // TODO: Change to case sensitive?
+        try {
+          String URLEncodedDimensionName = URLEncoder.encode(entry.getKey().toLowerCase(), "UTF-8");
+          String URLEncodedDimensionValue = URLEncoder.encode(entry.getValue().toLowerCase(), "UTF-8");
+          context.put(URLEncodedDimensionName, URLEncodedDimensionValue);
+        } catch (UnsupportedEncodingException e) {
+          LOG.warn("Unable to encode this dimension pair {}:{} for external links.", entry.getKey(), entry.getValue());
+        }
+      }
+    }
+
+    Long startTime = mergedAnomaly.getStartTime();
+    Long endTime = mergedAnomaly.getEndTime();
+    Map<String, String> externalLinkTimeGranularity = metricConfigDTO.getExtSourceLinkTimeGranularity();
+    for (Map.Entry<String, String> externalLinkEntry : urlTemplates.entrySet()) {
+      String sourceName = externalLinkEntry.getKey();
+      String urlTemplate = externalLinkEntry.getValue();
+      // context for startTime and endTime
+      putExternalLinkTimeContext(startTime, endTime, sourceName, context, externalLinkTimeGranularity);
+
+      StrSubstitutor strSubstitutor = new StrSubstitutor(context);
+      String extSourceUrl = strSubstitutor.replace(urlTemplate);
+      urlTemplates.put(sourceName, extSourceUrl);
+    }
+    return new JSONObject(urlTemplates).toString();
+  }
+
+  /**
+   * The default time granularity of ThirdEye is MILLISECONDS; however, it could be different for external links. This
+   * method updates the start and end time according to external link's time granularity. If a link's granularity is
+   * not given, then the default granularity (MILLISECONDS) is used.
+   *
+   * @param startTime the start time in milliseconds/
+   * @param endTime the end time in milliseconds.
+   * @param linkName the name of the external link.
+   * @param context the context to be updated, which is used by StrSubstitutor.
+   * @param externalLinkTimeGranularity the granularity of the external link.
+   */
+  private void putExternalLinkTimeContext(long startTime, long endTime, String linkName,
+      Map<String, String> context, Map<String, String> externalLinkTimeGranularity) {
+    if (MapUtils.isNotEmpty(externalLinkTimeGranularity) && externalLinkTimeGranularity.containsKey(linkName)) {
+      String timeGranularityString = externalLinkTimeGranularity.get(linkName);
+      TimeGranularity timeGranularity = TimeGranularity.fromString(timeGranularityString);
+      context.put(MetricConfigBean.URL_TEMPLATE_START_TIME, String.valueOf(timeGranularity.convertToUnit(startTime)));
+      context.put(MetricConfigBean.URL_TEMPLATE_END_TIME, String.valueOf(timeGranularity.convertToUnit(endTime)));
+    } else { // put start and end time as is
+      context.put(MetricConfigBean.URL_TEMPLATE_START_TIME, String.valueOf(startTime));
+      context.put(MetricConfigBean.URL_TEMPLATE_END_TIME, String.valueOf(endTime));
+    }
   }
 
   /**
@@ -988,12 +955,10 @@ public class AnomaliesResource {
     anomalyDetails.setAnomalyRegionEnd(timeSeriesDateFormatter.print(newAnomalyRegionEnd));
     anomalyDetails.setCurrent(ThirdEyeUtils.getRoundedValue(mergedAnomaly.getAvgCurrentVal()));
     anomalyDetails.setBaseline(ThirdEyeUtils.getRoundedValue(mergedAnomaly.getAvgBaselineVal()));
-    anomalyDetails.setAnomalyResultSource(mergedAnomaly.getAnomalyResultSource().toString());
     anomalyDetails.setAnomalyFunctionId(anomalyFunction.getId());
     anomalyDetails.setAnomalyFunctionName(anomalyFunction.getFunctionName());
     anomalyDetails.setAnomalyFunctionType(anomalyFunction.getType());
     anomalyDetails.setAnomalyFunctionProps(anomalyFunction.getProperties());
-
     // Combine dimension map and filter set to construct a new filter set for the time series query of this anomaly
     Multimap<String, String> newFilterSet = generateFilterSetForTimeSeriesQuery(mergedAnomaly);
     try {
@@ -1036,7 +1001,7 @@ public class AnomaliesResource {
     return newFilterSet;
   }
 
-  public static Multimap<String, String> generateFilterSetWithDimensionMap(DimensionMap dimensionMap,
+  private static Multimap<String, String> generateFilterSetWithDimensionMap(DimensionMap dimensionMap,
       Multimap<String, String> filterSet) {
 
     Multimap<String, String> newFilterSet = HashMultimap.create();

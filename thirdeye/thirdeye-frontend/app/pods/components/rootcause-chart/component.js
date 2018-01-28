@@ -1,15 +1,12 @@
 import Ember from 'ember';
-import moment from 'moment';
 import d3 from 'd3';
-import buildTooltip from 'thirdeye-frontend/helpers/build-tooltip';
-import { toBaselineUrn, toMetricUrn, filterPrefix, hasPrefix, toMetricLabel, colorMapping } from 'thirdeye-frontend/helpers/rca-utils';
+import moment from 'moment';
+import { toBaselineUrn, toMetricUrn, filterPrefix, hasPrefix, stripTail, toBaselineRange } from 'thirdeye-frontend/helpers/utils';
 
 const TIMESERIES_MODE_ABSOLUTE = 'absolute';
 const TIMESERIES_MODE_RELATIVE = 'relative';
 const TIMESERIES_MODE_LOG = 'log';
 const TIMESERIES_MODE_SPLIT = 'split';
-
-const EVENT_MIN_GAP = 60000;
 
 export default Ember.Component.extend({
   entities: null, // {}
@@ -24,8 +21,6 @@ export default Ember.Component.extend({
 
   timeseriesMode: null, // 'absolute', 'relative', 'log'
 
-  classNames: ['rootcause-chart'],
-
   init() {
     this._super(...arguments);
     this.set('timeseriesMode', TIMESERIES_MODE_ABSOLUTE);
@@ -35,46 +30,18 @@ export default Ember.Component.extend({
     show: false
   },
 
-  subchart: {
-    show: true
-  },
-
-  colorMapping: colorMapping,
-
-  /**
-   * Adding the buildTooltip Template helper to the this context
-   */
-  buildTooltip: buildTooltip,
-
-  /**
-   * custom height for split mode
-   */
-  splitChartHeight: {
-    height: 200
-  },
-
   tooltip: Ember.computed(
     'onHover',
     function () {
+      const { onHover } = this.getProperties('onHover');
+
       return {
-        grouped: true,
-        contents: (items, defaultTitleFormat, defaultValueFormat, color) => {
-          const t = moment(items[0].x);
-          const hoverUrns = this._onHover(t.valueOf());
-
-          const {
-            entities,
-            timeseries
-          } = this.getProperties('entities', 'timeseries');
-
-          const tooltip = this.buildTooltip.create();
-
-          return tooltip.compute({
-            entities,
-            timeseries,
-            hoverUrns,
-            hoverTimestamp: t.valueOf()
-          });
+        format: {
+          title: (d) => {
+            this._onHover(d);
+            return moment(d).format('MM/DD hh:mm a');
+          },
+          value: (val, ratio, id) => d3.format('.3s')(val)
         }
       };
     }
@@ -83,16 +50,14 @@ export default Ember.Component.extend({
   axis: Ember.computed(
     'context',
     function () {
+      console.log('rootcause-chart: axis');
       const { context } = this.getProperties('context');
-
-      const { analysisRange } = context;
-
+      
+      const { analysisRange } = context; 
+      
       return {
         y: {
-          show: true,
-          tick: {
-            format: d3.format('.2s')
-          }
+          show: true
         },
         y2: {
           show: false,
@@ -101,20 +66,18 @@ export default Ember.Component.extend({
         },
         x: {
           type: 'timeseries',
-          show: true,
+          show: true, // TODO false prevents function call, other option?
           min: analysisRange[0],
           max: analysisRange[1],
           tick: {
-            fit: false
+            count: Math.ceil(moment.duration(analysisRange[1] - analysisRange[0]).asDays()),
+            format: '%Y-%m-%d'
           }
         }
       };
     }
   ),
 
-  /**
-   * Array of displayable urns in timeseries chart (events, metrics, metric refs)
-   */
   displayableUrns: Ember.computed(
     'entities',
     'timeseries',
@@ -129,9 +92,6 @@ export default Ember.Component.extend({
     }
   ),
 
-  /**
-   * Transformed data series as ingested by timeseries-chart
-   */
   series: Ember.computed(
     'entities',
     'timeseries',
@@ -146,6 +106,8 @@ export default Ember.Component.extend({
         return {};
       }
 
+      console.log('rootcauseChart: series: timeseries', timeseries);
+      console.log('rootcauseChart: series: displayableUrns', displayableUrns);
       return this._makeChartSeries(displayableUrns);
     }
   ),
@@ -154,13 +116,6 @@ export default Ember.Component.extend({
   // split view logic
   //
 
-  splitSubchart: {
-    show: false
-  },
-
-  /**
-   * Dictionary of transformed data series for split view, keyed by metric ref urn.
-   */
   splitSeries: Ember.computed(
     'entities',
     'timeseries',
@@ -168,6 +123,7 @@ export default Ember.Component.extend({
     'displayableUrns',
     'timeseriesMode',
     function () {
+      console.log('rootcauseChart: splitSeries()');
       const { displayableUrns, timeseriesMode } =
         this.getProperties('displayableUrns', 'timeseriesMode');
 
@@ -195,14 +151,12 @@ export default Ember.Component.extend({
     }
   ),
 
-  /**
-   * Array of urns for split view. One per metric ref urn.
-   */
   splitUrns: Ember.computed(
     'entities',
     'displayableUrns',
     'timeseriesMode',
     function () {
+      console.log('rootcauseChart: splitUrns()');
       const { entities, displayableUrns, timeseriesMode } =
         this.getProperties('entities', 'displayableUrns', 'timeseriesMode');
 
@@ -211,20 +165,18 @@ export default Ember.Component.extend({
       }
 
       return filterPrefix(displayableUrns, 'frontend:metric:current:')
-        .map(urn => [toMetricLabel(toMetricUrn(urn), entities), urn])
+        .map(urn => [entities[stripTail(toMetricUrn(urn))].label.split("::")[1], urn])
         .sort()
         .map(t => t[1]);
     }
   ),
 
-  /**
-   * Dictionary of chart labels for split view, keyed by metric ref urn.
-   */
   splitLabels: Ember.computed(
     'entities',
     'displayableUrns',
     'timeseriesMode',
     function () {
+      console.log('rootcauseChart: splitLabels()');
       const { entities, displayableUrns, timeseriesMode } =
         this.getProperties('entities', 'displayableUrns', 'timeseriesMode');
 
@@ -234,18 +186,16 @@ export default Ember.Component.extend({
 
       return filterPrefix(displayableUrns, 'frontend:metric:current:')
         .reduce((agg, urn) => {
-          agg[urn] = toMetricLabel(toMetricUrn(urn), entities);
+          agg[urn] = entities[stripTail(toMetricUrn(urn))].label.split("::")[1];
           return agg;
         }, {});
     }
   ),
 
-  /**
-   * Split view indicator
-   */
   isSplit: Ember.computed(
     'timeseriesMode',
     function () {
+      console.log('rootcauseChart: isSplit()');
       return this.get('timeseriesMode') == TIMESERIES_MODE_SPLIT;
     }
   ),
@@ -254,15 +204,11 @@ export default Ember.Component.extend({
   // helpers
   //
 
-  /**
-   * Returns a dictionary with transformed data series as ingested by timeseries-chart for a given set of
-   * urns (metric refs and event entities).
-   *
-   * @param {Array} urns metric ref urns
-   */
   _makeChartSeries(urns) {
     const { context } = this.getProperties('context');
-    const { anomalyRange } = context;
+    
+    const { anomalyRange, compareMode } = context;
+    const baselineRange = toBaselineRange(anomalyRange, compareMode);
 
     const series = {};
     [...urns].forEach(urn => {
@@ -276,12 +222,16 @@ export default Ember.Component.extend({
       color: 'orange'
     };
 
+    series['baselineRange'] = {
+      timestamps: baselineRange,
+      values: [0, 0],
+      type: 'region',
+      color: 'blue'
+    };
+
     return series;
   },
 
-  /**
-   * Dictionary for the min and mix timestamps of events and timeseries for hover bounds checking
-   */
   _hoverBounds: Ember.computed(
     'entities',
     'timeseries',
@@ -299,23 +249,17 @@ export default Ember.Component.extend({
     }
   ),
 
-  /**
-   * Dictionary of y-values for event entities. Laid out by a swimlane algorithm purely for display purposes
-   */
   _eventValues: Ember.computed(
     'entities',
     'displayableUrns',
     function () {
-      const { entities, displayableUrns, context } =
-        this.getProperties('entities', 'displayableUrns', 'context');
+      const { entities, displayableUrns } =
+        this.getProperties('entities', 'displayableUrns');
 
       const selectedEvents = filterPrefix(displayableUrns, 'thirdeye:event:').map(urn => entities[urn]);
 
-      const analysisRangeEnd = context.analysisRange[1];
-      const handleOngoingEnd = (e) => e.end <= 0 ? analysisRangeEnd : e.end;
-
       const starts = selectedEvents.map(e => [e.start, e.urn]);
-      const ends = selectedEvents.map(e => [handleOngoingEnd(e) + EVENT_MIN_GAP, e.urn]); // no overlap
+      const ends = selectedEvents.map(e => [e.end + 1, e.urn]); // no overlap
       const sorted = starts.concat(ends).sort();
 
       //
@@ -345,41 +289,24 @@ export default Ember.Component.extend({
       });
 
       const normalized = {};
-      Object.keys(urn2lane).forEach(urn => normalized[urn] = 1 - 0.5 * urn2lane[urn] / max);
+      Object.keys(urn2lane).forEach(urn => normalized[urn] = 1 - 1.0 * urn2lane[urn] / max);
 
       return normalized;
     }
   ),
 
-  /**
-   * Converts a urn into a valid series label as ingested by timeseries-chart
-   *
-   * @param {string} urn entity urn
-   * @returns {string} label
-   * @private
-   */
   _makeLabel(urn) {
     return urn;
   },
 
-  /**
-   * Returns a transformed data series as ingested by timeseries-chart for a given urn. Supports
-   * metric refs and event entities.
-   *
-   * @param {string} urn entity urn
-   * @returns {Object} timeseries-chart series instance
-   * @private
-   */
   _makeSeries(urn) {
-    const { entities, timeseries, timeseriesMode, _eventValues, context } =
-      this.getProperties('entities', 'timeseries', 'timeseriesMode', '_eventValues', 'context');
+    const { entities, timeseries, timeseriesMode, _eventValues } =
+      this.getProperties('entities', 'timeseries', 'timeseriesMode', '_eventValues');
 
     if (hasPrefix(urn, 'frontend:metric:current:')) {
-      const metricEntity = entities[toMetricUrn(urn)];
       const series = {
         timestamps: timeseries[urn].timestamps,
         values: timeseries[urn].values,
-        color: metricEntity ? metricEntity.color : 'none',
         type: 'line',
         axis: 'y'
       };
@@ -387,12 +314,10 @@ export default Ember.Component.extend({
       return this._transformSeries(timeseriesMode, series);
 
     } else if (hasPrefix(urn, 'frontend:metric:baseline:')) {
-      const metricEntity = entities[toMetricUrn(urn)];
       const series = {
         timestamps: timeseries[urn].timestamps,
         values: timeseries[urn].values,
-        color: metricEntity ? 'light-' + metricEntity.color : 'none',
-        type: 'line',
+        type: 'scatter',
         axis: 'y'
       };
 
@@ -400,27 +325,15 @@ export default Ember.Component.extend({
 
     } else if (hasPrefix(urn, 'thirdeye:event:')) {
       const val = _eventValues[urn];
-      const endRange = context.analysisRange[1];
-      const end = entities[urn].end <= 0 ? endRange : entities[urn].end;
-
       return {
-        timestamps: [entities[urn].start, end],
+        timestamps: [entities[urn].start, entities[urn].end || entities[urn].start],
         values: [val, val],
-        color: entities[urn].color,
         type: 'line',
         axis: 'y2'
       };
     }
   },
 
-  /**
-   * Returns a timeseries transformed by mode.
-   *
-   * @param {string} mode transformation mode
-   * @param {Object} series timeseries container ({ timestamps: [], values: [] })
-   * @returns {Object} transformed timeseries container
-   * @private
-   */
   _transformSeries(mode, series) {
     switch(mode) {
       case TIMESERIES_MODE_ABSOLUTE:
@@ -435,61 +348,26 @@ export default Ember.Component.extend({
     return series;
   },
 
-  /**
-   * Transforms the input timeseries to relative values based on first value.
-   *
-   * @param {Object} series timeseries container
-   * @private
-   */
   _transformSeriesRelative(series) {
-    const first = series.values.filter(v => v)[0] || 1.0;
+    const first = series.values.filter(v => v)[0];
     const output = Object.assign({}, series);
-    output.values = series.values.map(v => v != null ? 1.0 * v / first : null);
+    output.values = series.values.map(v => 1.0 * v / first);
     return output;
   },
 
-  /**
-   * Transforms the input timeseries to log values, with a custom interpretation
-   *
-   * @param {Object} series timeseries container
-   * @private
-   */
   _transformSeriesLog(series) {
     const output = Object.assign({}, series);
-    output.values = series.values.map(v => v != null ? this._customLog(v) : null);
+    output.values = series.values.map(v => Math.log(v));
     return output;
   },
 
-  /**
-   * Log transform helper for values <= 0
-   *
-   * @param {Float} v value
-   * @private
-   */
-  _customLog(v) {
-    if (v <= 0) { return null; }
-    return Math.log(v);
-  },
-
-  /**
-   * Returns the set of urns whose timeseries bounds include the timestamp d.
-   *
-   * @param {Int} d timestamp in millis
-   * @private
-   */
   _onHover(d) {
     const { _hoverBounds: bounds, displayableUrns, onHover } =
       this.getProperties('_hoverBounds', 'displayableUrns', 'onHover');
 
     if (onHover != null) {
       const urns = [...displayableUrns].filter(urn => bounds[urn] && bounds[urn][0] <= d && d <= bounds[urn][1]);
-
-      const metricUrns = filterPrefix(urns, 'frontend:metric:');
-      const eventUrns = filterPrefix(urns, 'thirdeye:event:');
-      const outputUrns = new Set([...metricUrns, ...metricUrns.map(toMetricUrn), ...eventUrns]);
-
-      onHover(outputUrns, d);
-      return outputUrns;
+      onHover(urns);
     }
   }
 });

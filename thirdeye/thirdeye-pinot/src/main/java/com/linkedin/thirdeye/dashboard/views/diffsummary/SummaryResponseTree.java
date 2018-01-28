@@ -1,5 +1,6 @@
 package com.linkedin.thirdeye.dashboard.views.diffsummary;
 
+import com.linkedin.thirdeye.client.diffsummary.Cube;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -8,34 +9,24 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.linkedin.thirdeye.client.diffsummary.costfunctions.CostFunction;
+import com.linkedin.thirdeye.client.diffsummary.CostFunction;
 import com.linkedin.thirdeye.client.diffsummary.Dimensions;
 import com.linkedin.thirdeye.client.diffsummary.HierarchyNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
 
 public class SummaryResponseTree {
-  private static final Logger LOG = LoggerFactory.getLogger(SummaryResponseTree.class);
   @JsonProperty("dimensions")
   List<String> dimensions = new ArrayList<>();
 
   List<HierarchyNode> hierarchicalNodes = new ArrayList<>();
 
 
-  public static List<HierarchyNode> sortResponseTree(List<HierarchyNode> nodes, int levelCount, CostFunction costFunction) {
+  public static List<HierarchyNode> sortResponseTree(List<HierarchyNode> nodes, int levelCount) {
     SummaryResponseTree responseTree = new SummaryResponseTree();
 
     // Build the header
     Dimensions dimensions = nodes.get(0).getDimensions();
-    double globalBaselineValue = nodes.get(0).getOriginalCurrentValue();
-    double globalCurrentValue = nodes.get(0).getOriginalBaselineValue();
-    for (HierarchyNode node : nodes) {
-      if (node.getLevel() == 0) {
-        globalBaselineValue = node.getOriginalBaselineValue();
-        globalCurrentValue = node.getOriginalCurrentValue();
-        break;
-      }
-    }
+    double totalValue = nodes.get(0).getOriginalCurrentValue() + nodes.get(0).getOriginalBaselineValue();
     for (int i = 0; i < levelCount; ++i) {
       responseTree.dimensions.add(dimensions.get(i));
     }
@@ -67,7 +58,7 @@ public class SummaryResponseTree {
     }
 
     // Sort the children of each node by their cost
-    sortChildNodes(treeNodes.get(0), globalBaselineValue, globalCurrentValue, costFunction);
+    sortChildNodes(treeNodes.get(0), totalValue);
 
     // Put the nodes to a flattened array
     insertChildNodes(treeNodes.get(0), responseTree.hierarchicalNodes);
@@ -76,9 +67,7 @@ public class SummaryResponseTree {
   }
 
   private static void insertChildNodes(SummaryResponseTreeNode node, List<HierarchyNode> hierarchicalNodes) {
-    if (node.hierarchyNode != null) {
-      hierarchicalNodes.add(node.hierarchyNode);
-    }
+    if (node.hierarchyNode != null) hierarchicalNodes.add(node.hierarchyNode);
     for (SummaryResponseTreeNode child : node.children) {
       insertChildNodes(child, hierarchicalNodes);
     }
@@ -87,44 +76,40 @@ public class SummaryResponseTree {
   /**
    * A recursive function to sort response tree.
    */
-  private static void sortChildNodes(SummaryResponseTreeNode node, double globalBaselineValue,
-      double globalCurrentValue, CostFunction costFunction) {
+  private static void sortChildNodes(SummaryResponseTreeNode node, double totalValue) {
     if (node.children.size() == 0) return;
     for (SummaryResponseTreeNode child : node.children) {
-      sortChildNodes(child, globalBaselineValue, globalCurrentValue, costFunction);
+      sortChildNodes(child, totalValue);
     }
     double ratio = node.currentRatio();
     for (SummaryResponseTreeNode child : node.children) {
-      computeCost(child, ratio, globalBaselineValue, globalCurrentValue, costFunction);
+      computeCost(child, ratio, totalValue);
     }
     Collections.sort(node.children, Collections.reverseOrder(new SummaryResponseTreeNodeCostComparator()));
   }
 
-  private static void computeCost(SummaryResponseTreeNode node, double targetRatio, double globalBaselineValue,
-      double globalCurrentValue, CostFunction costFunction) {
+  private static void computeCost(SummaryResponseTreeNode node, double targetRatio, double totalValue) {
     if (node.hierarchyNode != null) {
-      double nodeCost = costFunction
-          .computeCost(node.getBaselineValue(), node.getCurrentValue(), targetRatio, globalBaselineValue,
-              globalCurrentValue);
-      node.hierarchyNode.setCost(nodeCost);
-      node.subTreeCost = nodeCost;
+      node.cost = CostFunction
+          .errWithPercentageRemoval(node.getBaselineValue(), node.getCurrentValue(), targetRatio,
+              Cube.PERCENTAGE_CONTRIBUTION_THRESHOLD, totalValue);
     }
     for (SummaryResponseTreeNode child : node.children) {
-      computeCost(child, targetRatio, globalBaselineValue, globalCurrentValue, costFunction);
-      node.subTreeCost += child.subTreeCost;
+      computeCost(child, targetRatio, totalValue);
+      node.cost += child.cost;
     }
   }
 
   public static class SummaryResponseTreeNodeCostComparator implements Comparator<SummaryResponseTreeNode> {
     @Override
     public int compare(SummaryResponseTreeNode o1, SummaryResponseTreeNode o2) {
-      return Double.compare(o1.subTreeCost, o2.subTreeCost);
+      return Double.compare(o1.cost, o2.cost);
     }
   }
 
   public static class SummaryResponseTreeNode {
     HierarchyNode hierarchyNode; // If it is null, this node is a dummy node.
-    double subTreeCost;
+    double cost;
     int level;
 
     @JsonIgnore

@@ -1,44 +1,47 @@
-{{#if hasErrorsRoute}}
-  <div class="rootcause-alert alert alert-danger alert-dismissable fade in">
-    <a class="close" data-dismiss="alert" {{action "clearErrors" "route"}}>&times;</a>
-    Error:{{#each routeErrors as |e|}} <strong>{{e}}</strong>{{/each}}
-  </div>
-{{/if}}
-
-{{#if sessionUpdateWarning}}
-  <div class="rootcause-alert alert alert-warning fade in">
-    {{sessionUpdateWarning}}
-  </div>
-{{/if}}
-
-{{rootcause-header
-  sessionId=sessionId
-  sessionName=sessionName
-  sessionText=sessionText
-  sessionModified=sessionModified
-  sessionUpdatedBy=sessionUpdatedBy
-  sessionUpdatedTime=sessionUpdatedTime
-  onChange=(action "onSessionChange")
-  onSave=(action "onSessionSave")
-  onCopy=(action "onSessionCopy")}}
-
 <div class="container">
-  {{#if context.anomalyUrns.size}}
-    {{rootcause-anomaly
-      entities=entities
-      aggregates=aggregates
-      anomalyUrns=context.anomalyUrns
-      onFeedback=(action "onFeedback")
-    }}
-  {{/if}}
+  <div class="row">
+    {{!-- TODO: delete <p> tag before release --}}
+    <p>testing | <a {{action "loadtestSelectedUrns"}}>select all entities (loadtest)</a></p>
 
-  <div class="row card-container card-container--box-shadow">
-    <div class="card-container__header card-container__header--no-border card-container__header--flush-bottom">
-      <span class="card-container__title">Root cause Analysis</span>
-    </div>
-    <div class="card-container__body card-container__body--flush-bottom">
-      {{#if selectedUrns.size}}
-          <div class="rootcause-wrapper">
+    <h2 class="te-title te-title--rootcause">Root Cause Analysis for {{model.metricName}}</h2>
+    {{rootcause-settings
+      context=context
+      config=settingsConfig
+      onChange=(action "onContext")
+    }}
+  </div>
+
+  <p>loading
+  {{#if isLoadingEntities}}
+    | ENTITIES
+  {{/if}}
+  {{#if isLoadingTimeseries}}
+    | TIMESERIES
+  {{/if}}
+  </p>
+
+  <div class="row">
+    <div class="card-container card-container--box-shadow">
+      <div class="card-container__header">
+          <div class="card-container__subnav">
+            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "events") "thirdeye-link--active"}}" {{action (mut activeTab) "events"}}>
+              Events Correlation
+            </a>
+          </div>
+          <div class="card-container__subnav">
+            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "dimensions") "thirdeye-link--active"}}" {{action (mut activeTab) "dimensions"}}>
+              Dimensions Analysis
+            </a>
+          </div>
+          <div class="card-container__subnav">
+            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "metrics") "thirdeye-link--active"}}" {{action (mut activeTab) "metrics"}}>
+              Metrics Correlation
+            </a>
+          </div>
+      </div>
+      <div class="card-container__body">
+        <div class="row">
+          <div class="col-xs-3">
             {{rootcause-legend
               entities=entities
               selectedUrns=selectedUrns
@@ -46,180 +49,63 @@
               onVisibility=(action "onVisibility")
               onSelection=(action "onSelection")
             }}
-            <div class="rootcause-wrapper__chart">
-              <div class="row rootcause-wrapper__toolbar">
-                {{rootcause-chart-toolbar
-                  context=context
-                  timeseriesMode=timeseriesMode
-                  onContext=(action "onContext")
-                  onChart=(action "onChart")
-                }}
-              </div>
-              {{#if isLoadingTimeseries}}
-                <div class="spinner-wrapper spinner-wrapper--card">
-                  {{ember-spinner}}
-                </div>
-              {{/if}}
-              {{rootcause-chart
-                entities=entities
-                selectedUrns=chartSelectedUrns
-                timeseries=timeseries
-                timeseriesMode=timeseriesMode
-                context=context
-                onHover=(action "chartOnHover")
+          </div>
+          <div class="col-xs-8">
+            {{rootcause-chart
+              entities=entities
+              selectedUrns=chartSelectedUrns
+              timeseries=timeseries
+              context=context
+              onHover=(action "chartOnHover")
+            }}
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-xs-12">
+            {{#if (eq activeTab "dimensions")}}
+              <h3>Dimensions</h3>
+              {{rootcause-heatmap
+                breakdowns=breakdowns
+                selectedUrns=selectedUrns
+                onSelection=(action "onSelection")
               }}
-            </div>
-          </div>
-      {{else}}
-        <div class="card-container card-container--flush-top">
-          {{rootcause-placeholder
-            message="Please select a metric and click on '+ add to chart' below. The root cause graph will load here."
-            iconClass="glyphicon glyphicon-equalizer"}}
-        </div>
-      {{/if}}
-        <div class="row rootcause-compare">
-          {{rootcause-select-comparison-range
-            range=context.anomalyRange
-            compareMode=context.compareMode
-            onChange=(action "onComparisonChange")
-          }}
-        </div>
-    </div>
+            {{/if}}
 
-    {{#if hasServiceErrors}}
-      {{#if hasErrorsEntities}}
-        <div class="rootcause-alert alert alert-danger alert-dismissable fade in">
-          <a class="close" data-dismiss="alert" {{action "clearErrors" "entities"}}>&times;</a>
-          Error for task(s):{{#each entitiesService.errors as |e|}} <strong>{{e}}</strong>{{/each}}
-        </div>
-      {{/if}}
+            {{#if (eq activeTab "metrics")}}
+              <h3>Metrics</h3>
+              {{rootcause-metrics
+                entities=entities
+                aggregates=aggregates
+                selectedUrns=selectedUrns
+                onSelection=(action "onSelection")
+              }}
+            {{/if}}
 
-      {{#if hasErrorsTimeseries}}
-        <div class="rootcause-alert alert alert-danger alert-dismissable fade in">
-          <a class="close" data-dismiss="alert" {{action "clearErrors" "timeseries"}}>&times;</a>
-          Could not load timeseries:{{#each timeseriesService.errors as |e|}} <strong>{{e}}</strong>{{/each}}
-        </div>
-      {{/if}}
-
-      {{#if hasErrorsAggregates}}
-        <div class="rootcause-alert alert alert-danger alert-dismissable fade in">
-          <a class="close" data-dismiss="alert" {{action "clearErrors" "aggregates"}}>&times;</a>
-          Could not load aggregates:{{#each aggregatesService.errors as |e|}} <strong>{{e}}</strong>{{/each}}
-        </div>
-      {{/if}}
-
-      {{#if hasErrorsBreakdowns}}
-        <div class="rootcause-alert alert alert-danger alert-dismissable fade in">
-          <a class="close" data-dismiss="alert" {{action "clearErrors" "breakdowns"}}>&times;</a>
-          Could not load dimensions:{{#each breakdownsService.errors as |e|}} <strong>{{e}}</strong>{{/each}}
-        </div>
-      {{/if}}
-    {{/if}}
-
-    <div class="card-container card-container--space-around card-container--flush-top">
-      <div class="card-container__row card-container__row--flex row">
-        <div class="col-xs-10">
-          {{rootcause-select-metric-dimension
-            selectedUrn=metricUrn
-            onSelection=(action "onPrimaryChange")
-          }}
-        </div>
-        <div class="col-xs-2">
-          <a class="thirdeye-link thirdeye-link--settings" {{action "onPrimarySelection"}}>+ add to chart</a>
-        </div>
-      </div>
-      <div class="card-container__row card-container__row--flex row">
-        <div class="col-xs-12">
-          {{rootcause-data-indicator
-            selectedUrn=metricUrn
-            anomalyRange=context.anomalyRange
-          }}
-        </div>
-      </div>
-
-      {{#if context.urns.size}}
-        <div class="card-container__header">
-          <div class="card-container__subnav">
-            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "metrics") "thirdeye-link--active "}}" {{action (mut activeTab)
-              "metrics"}}>
-              Metrics
-            </a>
-          </div>
-          <div class="card-container__subnav">
-            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "dimensions") "thirdeye-link--active"}}" {{action (mut activeTab) "dimensions"}}>
-              Dimensions
-            </a>
-          </div>
-          <div class="card-container__subnav">
-            <a class="thirdeye-link thirdeye-link--nav {{if (eq activeTab "events") "thirdeye-link--active"}}" {{action (mut activeTab) "events"}}>
-              Events
-            </a>
-          </div>
-        </div>
-
-        <div class="card-container__body">
-          <div class="row">
-            <div class="col-xs-12">
-              {{#if (eq activeTab "dimensions")}}
-                {{#if isLoadingBreakdowns}}
-                  <div class="spinner-wrapper spinner-wrapper--card">
-                    {{ember-spinner}}
-                  </div>
-                {{/if}}
-
-                {{rootcause-heatmap
-                  entities=entities
-                  breakdowns=breakdowns
-                  selectedUrn=metricUrn
-                  isLoadingBreakdowns=isLoadingBreakdowns
-                  onSelection=(action "heatmapOnSelection")
-                }}
-              {{/if}}
-
-              {{#if (eq activeTab "metrics")}}
-                {{#if isLoadingAggregates}}
-                  <div class="spinner-wrapper spinner-wrapper--card">
-                    {{ember-spinner}}
-                  </div>
-                {{/if}}
-
-                {{rootcause-metrics
-                  entities=entities
-                  aggregates=aggregates
-                  selectedUrns=selectedUrns
-                  onSelection=(action "onSelection")
-                }}
-              {{/if}}
-
-              {{#if (eq activeTab "events")}}
-                <div class="row">
-                  <div class="col-xs-3">
-                    {{filter-bar
-                      config=filterConfig
-                      entities=eventFilterEntities
-                      onFilter=(action "onFilter")}}
-                  </div>
-
-                  <div class="col-xs-9">
-                    {{#if isLoadingEntities}}
-                      <div class="spinner-wrapper spinner-wrapper--card">
-                        {{ember-spinner}}
-                      </div>
-                    {{/if}}
-
-                    {{rootcause-table
-                      entities=eventTableEntities
-                      columns=eventTableColumns
-                      selectedUrns=selectedUrns
-                      onSelection=(action "onSelection")
-                    }}
-                  </div>
+            {{#if (eq activeTab "events")}}
+              <h3>Events</h3>
+              <div class="row">
+                <div class="col-xs-3">
+                  {{filter-bar
+                    config=filterConfig
+                    activeTab=selectedTab
+                    entities=eventFilterEntities
+                    onSelect=(action "onFilter")}}
                 </div>
-              {{/if}}
-            </div>
+                <div class="col-xs-8">
+                  {{rootcause-table
+                    entities=eventTableEntities
+                    columns=eventTableColumns
+                    selectedUrns=selectedUrns
+                    onSelection=(action "onSelection")
+                  }}
+                </div>
+              </div>
+            {{/if}}
           </div>
         </div>
-      {{/if}}
+      </div>
     </div>
   </div>
+
 </div>

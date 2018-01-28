@@ -3,17 +3,29 @@
  * Each objects contains the following properties:
  *  1. header {string} - displayed event type on the filter bar header
  *  2. eventType {string} - type of event to filter by
- *  3. color {string} - color of the dot next to the header on the filter bar
- *  4. inputs {array} - array of objects, each specifying the sub-filters of an eventType
+ *  3. inputs {array} - array of objects, each specifying the sub-filters of an eventType
  *    a. label {string} - displayed name for the input
  *    b. labelMapping {string} - key value of label in the payload's attribute object that maps to the label
  *    c. type {string} - input type (i.e. dropdown, checkbox, drag)
  */
 export default [
   {
+    header: "Anomalies",
+    eventType: "anomaly",
+    inputs: [
+      {
+        label: "dataset",
+        type: "dropdown"
+      },
+      {
+        label: "metric",
+        type: "dropdown"
+      }
+    ]
+  },
+  {
     header: "Holidays",
     eventType: "holiday",
-    color: "green",
     inputs: [
       {
         label: "Country",
@@ -23,9 +35,8 @@ export default [
     ]
   },
   {
-    header: "GCN",
+    header: "Issues",
     eventType: "gcn",
-    color: "orange",
     inputs: [
       {
         label: "Fabric",
@@ -41,27 +52,23 @@ export default [
         label: "Priority",
         labelMapping: "priority",
         type: "dropdown"
-      }
+      },
     ]
   },
   {
-    header: "LiX",
+    header: "Experiments",
     eventType: "lix",
-    color: "purple",
     inputs: [
       {
         label: "metrics",
-        labelMapping: "metrics",
         type: "dropdown"
       },
       {
         label: "services",
-        labelMapping: "services",
         type: "dropdown"
       },
       {
         label: "tags",
-        labelMapping: "tags",
         type: "dropdown"
       }
     ]
@@ -69,38 +76,17 @@ export default [
   {
     header: "Deployments",
     eventType: "informed",
-    color: "red",
     inputs: [
       {
         label: "services",
-        labelMapping: "services",
         type: "dropdown"
       },
       {
         label: "actions",
-        labelMapping: "actions",
         type: "dropdown"
       },
       {
         label: "fabrics",
-        labelMapping: "fabrics",
-        type: "dropdown"
-      }
-    ]
-  },
-  {
-    header: "Anomalies",
-    eventType: "anomaly",
-    color: "teal",
-    inputs: [
-      {
-        label: "dataset",
-        labelMapping: "dataset",
-        type: "dropdown"
-      },
-      {
-        label: "metric",
-        labelMapping: "metric",
         type: "dropdown"
       }
     ]

@@ -28,7 +28,7 @@ import com.linkedin.thirdeye.datasource.cache.QueryCache;
 
 public class ThirdEyeCacheRegistry {
   private static final Logger LOGGER = LoggerFactory.getLogger(ThirdEyeCacheRegistry.class);
-  private static final ThirdEyeCacheRegistry INSTANCE = new ThirdEyeCacheRegistry();
+  static final ThirdEyeCacheRegistry INSTANCE = new ThirdEyeCacheRegistry();
 
   public static final long CACHE_EXPIRATION_HOURS = 1;
 
@@ -38,6 +38,8 @@ public class ThirdEyeCacheRegistry {
   private static MetricConfigManager metricConfigDAO;
   private static AnomalyFunctionManager anomalyFunctionDAO;
 
+  // Data sources to time series databases.
+  private static Map<String, ThirdEyeDataSource> thirdEyeDataSourcesMap;
   // TODO: Rename QueryCache to a name like DataSrouceCache.
   private QueryCache queryCache;
 
@@ -55,23 +57,12 @@ public class ThirdEyeCacheRegistry {
   /**
    * Initializes data sources and caches.
    *
-   * @param thirdeyeConfig ThirdEye's configurations.
+   * @param config ThirdEye's configurations.
    */
   public static void initializeCaches(ThirdEyeConfiguration thirdeyeConfig) throws Exception {
     initDataSources(thirdeyeConfig);
     initMetaDataCaches(thirdeyeConfig);
     initPeriodicCacheRefresh();
-  }
-
-  /**
-   * Initializes data sources and caches without starting auto-refreshing procedure. This method is useful for running
-   * a lightweight ThirdEye that doesn't cache tons of data beforehand.
-   *
-   * @param thirdeyeConfig ThirdEye's configurations.
-   */
-  public static void initializeCachesWithoutRefreshing(ThirdEyeConfiguration thirdeyeConfig) throws Exception {
-    initDataSources(thirdeyeConfig);
-    initMetaDataCaches(thirdeyeConfig);
   }
 
   /**
@@ -86,7 +77,7 @@ public class ThirdEyeCacheRegistry {
         throw new IllegalStateException("Could not create data sources from path " + dataSourcesPath);
       }
       // Query Cache
-      Map<String, ThirdEyeDataSource> thirdEyeDataSourcesMap = DataSourcesLoader.getDataSourceMap(dataSources);
+      thirdEyeDataSourcesMap = DataSourcesLoader.getDataSourceMap(dataSources);
       QueryCache queryCache = new QueryCache(thirdEyeDataSourcesMap, Executors.newFixedThreadPool(10));
       ThirdEyeCacheRegistry.getInstance().registerQueryCache(queryCache);
 
@@ -101,8 +92,10 @@ public class ThirdEyeCacheRegistry {
 
   /**
    * Initialize the cache for meta data. This method has to be invoked after data sources are connected.
+   *
+   * @throws Exception
    */
-  private static void initMetaDataCaches(ThirdEyeConfiguration thirdeyeConfig) {
+  private static void initMetaDataCaches(ThirdEyeConfiguration thirdeyeConfig) throws Exception {
     ThirdEyeCacheRegistry cacheRegistry = ThirdEyeCacheRegistry.getInstance();
     QueryCache queryCache = cacheRegistry.getQueryCache();
     Preconditions.checkNotNull(queryCache,

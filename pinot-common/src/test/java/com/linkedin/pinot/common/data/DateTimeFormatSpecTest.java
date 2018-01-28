@@ -15,16 +15,17 @@
  */
 package com.linkedin.pinot.common.data;
 
-import com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
-import org.joda.time.DateTimeZone;
+
 import org.joda.time.format.DateTimeFormat;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+
+import com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat;
+import com.linkedin.pinot.common.data.DateTimeFormatSpec;
 
 /**
  * Tests for DateTimeFormatSpec helper methods
@@ -61,18 +62,8 @@ public class DateTimeFormatSpecTest {
         DateTimeFormat.forPattern("yyyyMMdd").withZoneUTC().parseMillis("20170701")
     });
     entries.add(new Object[] {
-        "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd tz(America/Chicago)", "20170701",
-        DateTimeFormat.forPattern("yyyyMMdd")
-            .withZone(DateTimeZone.forTimeZone(TimeZone.getTimeZone("America/Chicago"))).parseMillis("20170701")
-    });
-    entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH", "20170701 00",
         DateTimeFormat.forPattern("yyyyMMdd HH").withZoneUTC().parseMillis("20170701 00")
-    });
-    entries.add(new Object[] {
-        "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH tz(GMT+0600)", "20170701 00",
-        DateTimeFormat.forPattern("yyyyMMdd HH").withZone(DateTimeZone.forTimeZone(TimeZone.getTimeZone("GMT+0600")))
-            .parseMillis("20170701 00")
     });
     entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH Z", "20170701 00 -07:00",
@@ -116,27 +107,12 @@ public class DateTimeFormatSpecTest {
         DateTimeFormat.forPattern("yyyyMMdd").withZoneUTC().print(1498892400000L)
     });
     entries.add(new Object[] {
-        "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd tz(America/New_York)", 1498892400000L, String.class,
-        DateTimeFormat.forPattern("yyyyMMdd")
-            .withZone(DateTimeZone.forTimeZone(TimeZone.getTimeZone("America/New_York"))).print(1498892400000L)
-    });
-    entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH", 1498892400000L, String.class,
         DateTimeFormat.forPattern("yyyyMMdd HH").withZoneUTC().print(1498892400000L)
     });
     entries.add(new Object[] {
-        "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH tz(IST)", 1498892400000L, String.class,
-        DateTimeFormat.forPattern("yyyyMMdd HH").withZone(DateTimeZone.forTimeZone(TimeZone.getTimeZone("IST")))
-            .print(1498892400000L)
-    });
-    entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH Z", 1498892400000L, String.class,
         DateTimeFormat.forPattern("yyyyMMdd HH Z").withZoneUTC().print(1498892400000L)
-    });
-    entries.add(new Object[] {
-        "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH Z tz(GMT+0500)", 1498892400000L, String.class,
-        DateTimeFormat.forPattern("yyyyMMdd HH Z").withZone(DateTimeZone.forTimeZone(TimeZone.getTimeZone("GMT+0500")))
-            .print(1498892400000L)
     });
     entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:M/d/yyyy h:mm:ss a", 1498892400000L, String.class,
@@ -153,10 +129,9 @@ public class DateTimeFormatSpecTest {
   @Test(dataProvider = "testGetFromFormatDataProvider")
   public void testGetFromFormat(String format, int columnSizeFromFormatExpected,
       TimeUnit columnUnitFromFormatExpected, TimeFormat timeFormatFromFormatExpected,
-      String sdfPatternFromFormatExpected, DateTimeZone dateTimeZoneFromFormatExpected) {
+      String sdfPatternFromFormatExpected) {
 
     DateTimeFormatSpec dateTimeFormatSpec = new DateTimeFormatSpec(format);
-
     int columnSizeFromFormat = dateTimeFormatSpec.getColumnSize();
     Assert.assertEquals(columnSizeFromFormat, columnSizeFromFormatExpected);
 
@@ -167,15 +142,12 @@ public class DateTimeFormatSpecTest {
     Assert.assertEquals(timeFormatFromFormat, timeFormatFromFormatExpected);
 
     String sdfPatternFromFormat = null;
-    DateTimeZone dateTimeZoneFromFormat = DateTimeZone.UTC;
     try {
       sdfPatternFromFormat = dateTimeFormatSpec.getSDFPattern();
-      dateTimeZoneFromFormat = dateTimeFormatSpec.getDateTimezone();
     } catch (Exception e) {
       // No sdf pattern
     }
     Assert.assertEquals(sdfPatternFromFormat, sdfPatternFromFormatExpected);
-    Assert.assertEquals(dateTimeZoneFromFormat, dateTimeZoneFromFormatExpected);
   }
 
   @DataProvider(name = "testGetFromFormatDataProvider")
@@ -185,59 +157,29 @@ public class DateTimeFormatSpecTest {
 
     entries.add(new Object[] {
         "1:HOURS:EPOCH", 1, TimeUnit.HOURS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.EPOCH, null, DateTimeZone.UTC
+        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.EPOCH, null
     });
 
     entries.add(new Object[] {
         "5:MINUTES:EPOCH", 5, TimeUnit.MINUTES,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.EPOCH, null, DateTimeZone.UTC
+        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.EPOCH, null
     });
 
     entries.add(new Object[] {
         "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd", 1, TimeUnit.DAYS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT, "yyyyMMdd", DateTimeZone.UTC
-    });
-
-    entries.add(new Object[] {
-        "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd tz(IST)", 1, TimeUnit.DAYS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT, "yyyyMMdd",
-        DateTimeZone.forTimeZone(TimeZone.getTimeZone("IST"))
-    });
-
-    entries.add(new Object[] {
-        "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd          tz(IST)", 1, TimeUnit.DAYS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT, "yyyyMMdd",
-        DateTimeZone.forTimeZone(TimeZone.getTimeZone("IST"))
-    });
-
-    entries.add(new Object[] {
-        "1:DAYS:SIMPLE_DATE_FORMAT:yyyyMMdd tz  (   IST   )  ", 1, TimeUnit.DAYS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT, "yyyyMMdd",
-        DateTimeZone.forTimeZone(TimeZone.getTimeZone("IST"))
+        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT, "yyyyMMdd"
     });
 
     entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH", 1, TimeUnit.HOURS,
         com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT,
-        "yyyyMMdd HH", DateTimeZone.UTC
-    });
-
-    entries.add(new Object[] {
-        "1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd HH tz(dummy)", 1, TimeUnit.HOURS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT,
-        "yyyyMMdd HH", DateTimeZone.UTC
+        "yyyyMMdd HH"
     });
 
     entries.add(new Object[] {
         "1:HOURS:SIMPLE_DATE_FORMAT:M/d/yyyy h:mm:ss a", 1, TimeUnit.HOURS,
         com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT,
-        "M/d/yyyy h:mm:ss a", DateTimeZone.UTC
-    });
-
-    entries.add(new Object[] {
-        "1:HOURS:SIMPLE_DATE_FORMAT:M/d/yyyy h:mm:ss a tz(Asia/Tokyo)", 1, TimeUnit.HOURS,
-        com.linkedin.pinot.common.data.DateTimeFieldSpec.TimeFormat.SIMPLE_DATE_FORMAT,
-        "M/d/yyyy h:mm:ss a", DateTimeZone.forTimeZone(TimeZone.getTimeZone("Asia/Tokyo"))
+        "M/d/yyyy h:mm:ss a"
     });
     return entries.toArray(new Object[entries.size()][]);
   }
@@ -249,7 +191,7 @@ public class DateTimeFormatSpecTest {
     DateTimeFormatSpec formatActual1 = null;
     try {
       formatActual1 =
-          new DateTimeFormatSpec(columnSize, columnUnit.toString(), columnTimeFormat);
+          DateTimeFormatSpec.constructFormat(columnSize, columnUnit, columnTimeFormat);
     } catch (Exception e) {
       // invalid arguments
     }
@@ -258,7 +200,7 @@ public class DateTimeFormatSpecTest {
     DateTimeFormatSpec formatActual2 = null;
     try {
       formatActual2 =
-          new DateTimeFormatSpec(columnSize, columnUnit.toString(), columnTimeFormat, pattern);
+          DateTimeFormatSpec.constructFormat(columnSize, columnUnit, columnTimeFormat, pattern);
     } catch (Exception e) {
       // invalid arguments
     }
@@ -294,10 +236,6 @@ public class DateTimeFormatSpecTest {
     entries.add(new Object[] {
         1, TimeUnit.HOURS, "SIMPLE_DATE_FORMAT", "yyyyMMdd", null,
         new DateTimeFormatSpec("1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd")
-    });
-    entries.add(new Object[] {
-        1, TimeUnit.HOURS, "SIMPLE_DATE_FORMAT", "yyyyMMdd tz(America/Los_Angeles)", null,
-        new DateTimeFormatSpec("1:HOURS:SIMPLE_DATE_FORMAT:yyyyMMdd tz(America/Los_Angeles)")
     });
     entries.add(new Object[] {
         1, TimeUnit.HOURS, "SIMPLE_DATE_FORMAT", null, null, null

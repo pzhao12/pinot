@@ -27,10 +27,6 @@ public abstract class MutableDictionary extends BaseDictionary {
     return get(dictId).toString();
   }
 
-  public boolean isSorted() {
-    return false;
-  }
-
   public abstract void index(@Nonnull Object rawValue);
 
   public abstract boolean inRange(@Nonnull String lower, @Nonnull String upper, int dictIdToCompare,
@@ -48,5 +44,4 @@ public abstract class MutableDictionary extends BaseDictionary {
   public abstract int getAvgValueSize();
 
   public abstract boolean isEmpty();
-
 }

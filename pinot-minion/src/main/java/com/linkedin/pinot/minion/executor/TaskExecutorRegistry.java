@@ -31,7 +31,6 @@ public class TaskExecutorRegistry {
 
   public TaskExecutorRegistry() {
     registerTaskExecutorClass(MinionConstants.ConvertToRawIndexTask.TASK_TYPE, ConvertToRawIndexTaskExecutor.class);
-    registerTaskExecutorClass(MinionConstants.PurgeTask.TASK_TYPE, PurgeTaskExecutor.class);
   }
 
   /**

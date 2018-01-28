@@ -154,11 +154,6 @@ public class SegmentsValidationAndRetentionConfig {
     return Integer.parseInt(replication);
   }
 
-  @JsonIgnore
-  public int getReplicasPerPartitionNumber() {
-    return Integer.parseInt(replicasPerPartition);
-  }
-
   @Override
   public String toString() {
     final StringBuilder result = new StringBuilder();

@@ -1,5 +1,6 @@
 import Ember from 'ember';
 import moment from 'moment';
+import _ from 'lodash';
 
 /**
  * The Promise returned from fetch() won't reject on HTTP error status even if the response is an HTTP 404 or 500.
@@ -28,74 +29,144 @@ export function checkStatus(response, mode = 'get', recoverBlank = false) {
   }
 }
 
-/**
- * Formatter for the human-readable floating point numbers numbers
- */
-export function humanizeFloat(f) {
-  if (Number.isNaN(f)) { return '-'; }
-  const fixed = Math.max(3 - Math.max(Math.floor(Math.log10(f)) + 1, 0), 0);
-  return f.toFixed(fixed);
+export function isIterable(obj) {
+  if (obj == null || _.isString(obj)) {
+    return false;
+  }
+  return typeof obj[Symbol.iterator] === 'function';
+}
+
+export function makeIterable(obj) {
+  if (obj == null) {
+    return [];
+  }
+  return isIterable(obj) ? [...obj] : [obj];
+}
+
+export function filterObject(obj, func) {
+  const out = {};
+  Object.keys(obj).filter(key => func(obj[key])).forEach(key => out[key] = obj[key]);
+  return out;
+}
+
+export function stripTail(urn) {
+  const parts = urn.split(':');
+  if (urn.startsWith('thirdeye:metric:')) {
+    return _.slice(parts, 0, 3).join(':');
+  }
+  if (urn.startsWith('frontend:metric:')) {
+    return _.slice(parts, 0, 4).join(':');
+  }
+  return urn;
+}
+
+export function extractTail(urn) {
+  const parts = urn.split(':');
+  if (urn.startsWith('thirdeye:metric:')) {
+    return _.slice(parts, 3);
+  }
+  if (urn.startsWith('frontend:metric:')) {
+    return _.slice(parts, 4);
+  }
+  return [];
+}
+
+export function appendTail(urn, tail) {
+  if (_.isEmpty(tail)) {
+    return urn;
+  }
+  const tailString = tail.join(':');
+  return `${urn}:${tailString}`;
+}
+
+export function toCurrentUrn(urn) {
+  return metricUrnHelper('frontend:metric:current:', urn);
+}
+
+export function toBaselineUrn(urn) {
+  return metricUrnHelper('frontend:metric:baseline:', urn);
+}
+
+export function toMetricUrn(urn) {
+  return metricUrnHelper('thirdeye:metric:', urn);
+}
+
+function metricUrnHelper(prefix, urn) {
+  const parts = urn.split(':');
+  if (hasPrefix(urn, 'thirdeye:metric:')) {
+    const tail = makeUrnTail(parts, 3);
+    return `${prefix}${parts[2]}${tail}`;
+  }
+  if (hasPrefix(urn, 'frontend:metric:')) {
+    const tail = makeUrnTail(parts, 4);
+    return `${prefix}${parts[3]}${tail}`;
+  }
+  throw new Error(`Requires metric urn, but found ${urn}`);
+}
+
+function makeUrnTail(parts, baseLen) {
+  return parts.length > baseLen ? ':' + _.slice(parts, baseLen).join(':') : '';
+}
+
+export function hasPrefix(urn, prefixes) {
+  return !_.isEmpty(makeIterable(prefixes).filter(pre => urn.startsWith(pre)));
+}
+
+export function filterPrefix(urns, prefixes) {
+  return makeIterable(urns).filter(urn => hasPrefix(urn, prefixes));
+}
+
+export function toBaselineRange(anomalyRange, compareMode) {
+  const offset = {
+    WoW: 1,
+    Wo2W: 2,
+    Wo3W: 3,
+    Wo4W: 4
+  }[compareMode];
+
+  const start = moment(anomalyRange[0]).subtract(offset, 'weeks').valueOf();
+  const end = moment(anomalyRange[1]).subtract(offset, 'weeks').valueOf();
+
+  return [start, end];
+}
+
+export function toFilters(urns) {
+  const flatten = (agg, l) => agg.concat(l);
+
+  const dimensionFilters = filterPrefix(urns, 'thirdeye:dimension:').map(urn => _.slice(urn.split(':'), 2, 4));
+  const metricFilters = filterPrefix(urns, 'thirdeye:metric:').map(extractTail).map(enc => enc.map(tup => tup.split('='))).reduce(flatten, []);
+  const frontendMetricFilters = filterPrefix(urns, 'frontend:metric:').map(extractTail).map(enc => enc.map(tup => tup.split('='))).reduce(flatten, []);
+  return [...dimensionFilters, ...metricFilters, ...frontendMetricFilters];
+}
+
+export function toFilterMap(filters) {
+  const filterMap = {};
+  filters.forEach(t => {
+    const [dimName, dimValue] = t;
+    if (!filterMap[dimName]) {
+      filterMap[dimName] = new Set();
+    }
+    filterMap[dimName].add(dimValue);
+  });
+
+  // Set to list
+  Object.keys(filterMap).forEach(dimName => filterMap[dimName] = [...filterMap[dimName]]);
+
+  return filterMap;
 }
 
 /**
- * Formatter for the human-readable change values in percent with 1 decimal
+ * finds the corresponding labelMapping field given a label in the filterBarConfig
+ * This is only a placeholder since the filterBarConfig is not finalized
  */
-export function humanizeChange(f) {
-  if (Number.isNaN(f)) { return '-'; }
-  return `${f > 0 ? '+' : ''}${(Math.round(f * 1000) / 10.0).toFixed(1)}%`;
+export function findLabelMapping(label, config) {
+  let labelMapping = '';
+  config.some(filterBlock => filterBlock.inputs.some(input => {
+    if (input.label === label) {
+      labelMapping = input.labelMapping;
+    }
+  }));
+  return labelMapping;
 }
 
-/**
- * Helps with shorthand for repetitive date generation
- */
-export function buildDateEod(unit, type) {
-  return moment().subtract(unit, type).endOf('day').utc();
-}
-
-/**
- * Parses stringified object from payload
- * @param {String} filters
- * @returns {Object}
- */
-export function parseProps(filters) {
-  filters = filters || '';
-
-  return filters.split(';')
-    .filter(prop => prop)
-    .map(prop => prop.split('='))
-    .reduce(function (aggr, prop) {
-      const [ propName, value ] = prop;
-      aggr[propName] = value;
-      return aggr;
-    }, {});
-}
-
-/**
- * Preps post object and stringifies post data
- * @param {Object} data to post
- * @returns {Object}
- */
-export function postProps(postData) {
-  return {
-    method: 'post',
-    body: JSON.stringify(postData),
-    headers: { 'content-type': 'Application/Json' }
-  };
-}
-
-/**
- * Format conversion helper
- * @param {String} dateStr - date to convert
- */
-export function toIso(dateStr) {
-  return moment(Number(dateStr)).toISOString();
-}
-
-export default Ember.Helper.helper({
-  checkStatus,
-  humanizeFloat,
-  humanizeChange,
-  parseProps,
-  postProps,
-  toIso
-});
+export default Ember.Helper.helper({ checkStatus, isIterable, makeIterable, filterObject, toCurrentUrn, toBaselineUrn, toMetricUrn, stripTail, extractTail, appendTail, hasPrefix, filterPrefix, toBaselineRange, toFilters, toFilterMap, findLabelMapping });

@@ -16,66 +16,41 @@
 package com.linkedin.pinot.core.io.compression;
 
 /**
- * Factory for Chunk compressors/de-compressors.
+ * Factory for Chunk compressors/decompressors.
  */
 public class ChunkCompressorFactory {
 
-  // Private constructor to avoid object instantiation
-  private ChunkCompressorFactory() {
-
-  }
-
-  public enum CompressionType {
-    PASS_THROUGH(0),
-    SNAPPY(1);
-
-    private final int _value;
-
-    CompressionType(int value) {
-      _value = value;
-    }
-
-    public int getValue() {
-      return _value;
-    }
-  }
+  private static final String SNAPPY = "SNAPPY";
 
   /**
    * Returns the chunk compressor for the specified name.
    *
-   * @param compressionType Type of compressor.
-   * @return Compressor for the specified type.
+   * @param compressor Name of compressor.
+   * @return Compressor for the specified name.
    */
-  public static ChunkCompressor getCompressor(CompressionType compressionType) {
-    switch (compressionType) {
-
-      case PASS_THROUGH:
-        return new PassThroughCompressor();
-
+  public static ChunkCompressor getCompressor(String compressor) {
+    switch (compressor.toUpperCase()) {
       case SNAPPY:
         return new SnappyCompressor();
 
       default:
-        throw new IllegalArgumentException("Illegal compressor name " + compressionType);
+        throw new IllegalArgumentException("Illegal compressor name " + compressor);
     }
   }
 
   /**
    * Returns the chunk decompressor for the specified name.
    *
-   * @param compressionType Type of compression
+   * @param deCompressor Name of chunk decompressor
    * @return decompressor for the specified name
    */
-  public static ChunkDecompressor getDecompressor(CompressionType compressionType) {
-    switch (compressionType) {
-      case PASS_THROUGH:
-        return new PassThroughDecompressor();
-
+  public static ChunkDecompressor getDecompressor(String deCompressor) {
+    switch (deCompressor.toUpperCase()) {
       case SNAPPY:
         return new SnappyDecompressor();
 
       default:
-        throw new IllegalArgumentException("Illegal compressor name " + compressionType);
+        throw new IllegalArgumentException("Illegal compressor name " + deCompressor);
     }
   }
 }

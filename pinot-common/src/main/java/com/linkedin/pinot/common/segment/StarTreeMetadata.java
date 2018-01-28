@@ -22,18 +22,15 @@ import java.util.List;
  * This class holds the star tree specific metadata for a segment.
  */
 public class StarTreeMetadata {
-  private int _maxLeafRecords;
+
   private List<String> _dimensionsSplitOrder;
   private List<String> _skipStarNodeCreationForDimensions;
   private List<String> _skipMaterializationForDimensions;
-  private int _skipMaterializationCardinality;
 
-  public int getMaxLeafRecords() {
-    return _maxLeafRecords;
-  }
+  private long _maxLeafRecords;
+  private long _skipMaterializationCardinality;
 
-  public void setMaxLeafRecords(int maxLeafRecords) {
-    _maxLeafRecords = maxLeafRecords;
+  public StarTreeMetadata() {
   }
 
   public List<String> getDimensionsSplitOrder() {
@@ -44,6 +41,14 @@ public class StarTreeMetadata {
     _dimensionsSplitOrder = dimensionsSplitOrder;
   }
 
+  public long getMaxLeafRecords() {
+    return _maxLeafRecords;
+  }
+
+  public void setMaxLeafRecords(Long maxLeafRecords) {
+    _maxLeafRecords = maxLeafRecords;
+  }
+
   public List<String> getSkipStarNodeCreationForDimensions() {
     return _skipStarNodeCreationForDimensions;
   }
@@ -52,19 +57,19 @@ public class StarTreeMetadata {
     _skipStarNodeCreationForDimensions = skipStarNodeCreationForDimensions;
   }
 
+  public long getSkipMaterializationCardinality() {
+    return _skipMaterializationCardinality;
+  }
+
+  public void setSkipMaterializationCardinality(Long skipMaterializationCardinality) {
+    _skipMaterializationCardinality = skipMaterializationCardinality;
+  }
+
   public List<String> getSkipMaterializationForDimensions() {
     return _skipMaterializationForDimensions;
   }
 
   public void setSkipMaterializationForDimensions(List<String> skipMaterializationForDimensions) {
     _skipMaterializationForDimensions = skipMaterializationForDimensions;
-  }
-
-  public int getSkipMaterializationCardinality() {
-    return _skipMaterializationCardinality;
-  }
-
-  public void setSkipMaterializationCardinality(int skipMaterializationCardinality) {
-    _skipMaterializationCardinality = skipMaterializationCardinality;
   }
 }

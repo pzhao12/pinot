@@ -3,7 +3,26 @@ import fetch from 'fetch';
 import moment from 'moment';
 import RSVP from 'rsvp';
 import _ from 'lodash';
-import { checkStatus, buildDateEod, parseProps } from 'thirdeye-frontend/helpers/utils';
+import { checkStatus } from 'thirdeye-frontend/helpers/utils';
+
+/**
+ * Parses stringified object from payload
+ * @param {String} filters
+ * @returns {Object}
+ */
+const parseProps = (filters) => {
+  filters = filters || '';
+
+  return filters.split(';')
+    .filter(prop => prop)
+    .map(prop => prop.split('='))
+    .reduce(function (aggr, prop) {
+      const [ propName, value ] = prop;
+      aggr[propName] = value;
+
+      return aggr;
+    }, {});
+};
 
 export default Ember.Route.extend({
   model(params) {
@@ -18,27 +37,22 @@ export default Ember.Route.extend({
 
   afterModel(model) {
     const {
-      id,
       metric: metricName,
       collection: dataset,
       exploreDimensions,
+      functionName,
       filters,
       bucketSize,
       bucketUnit,
-      properties: alertProps
-    } = model.function;
+      id
+     } = model.function;
 
     let metricId = '';
+    let allGroupNames = [];
+    let allGroups = [];
     let metricDataUrl = '';
     let metricDimensionURl = '';
     let selectedAppName = '';
-
-    // Add a parsed properties array to the model
-    const propsArray = alertProps.split(';').map((prop) => {
-      const [ name, value ] = prop.split('=');
-      return { name, value: decodeURIComponent(value) };
-    });
-    Object.assign(model, { propsArray });
 
     return fetch(`/data/autocomplete/metric?name=${dataset}::${metricName}`).then(checkStatus)
       .then((metricsByName) => {
@@ -50,7 +64,7 @@ export default Ember.Route.extend({
         const dimension = exploreDimensions || 'All';
         const currentEnd = moment(maxTime).isValid()
           ? moment(maxTime).valueOf()
-          : buildDateEod(1, 'day').valueOf();
+          : moment().subtract(1, 'day').endOf('day').valueOf();
         const formattedFilters = JSON.stringify(parseProps(filters));
         // Load less data if granularity is 'minutes'
         const isMinutely = bucketUnit.toLowerCase().includes('minute');
@@ -74,7 +88,7 @@ export default Ember.Route.extend({
         return fetch(metricDataUrl).then(checkStatus);
       })
       .then((metricData) => {
-        Object.assign(metricData, { color: 'blue' });
+        Object.assign(metricData, { color: 'blue' })
         Object.assign(model, { metricData });
         return fetch(`/thirdeye/entity/ALERT_CONFIG`).then(checkStatus);
       })
@@ -85,7 +99,7 @@ export default Ember.Route.extend({
         return fetch(`/thirdeye/email/function/${id}`).then(checkStatus);
       })
       .then((groupByAlertId) => {
-        const originalConfigGroup = groupByAlertId.length ? groupByAlertId.pop() : null;
+        const originalConfigGroup = groupByAlertId ? groupByAlertId.pop() : null;
         selectedAppName = originalConfigGroup ? originalConfigGroup.application : null;
         Object.assign(model, { originalConfigGroup, selectedAppName });
         return fetch('/thirdeye/entity/APPLICATION').then(checkStatus);
@@ -104,7 +118,7 @@ export default Ember.Route.extend({
       });
   },
 
-  resetController(controller, isExiting) {
+  resetController(controller, isExiting, transition) {
     this._super(...arguments);
 
     if (isExiting) {
@@ -121,9 +135,8 @@ export default Ember.Route.extend({
       alertDimension: model.function.exploreDimensions,
       metricDimensions: model.metricDimensions,
       metricName: model.function.metric,
-      granularity: `${model.function.bucketSize}_${model.function.bucketUnit}`,
+      granularity: model.function.bucketSize + '_' + model.function.bucketUnit,
       alertFilters: model.function.filters,
-      alertProps: model.propsArray,
       alertConfigGroups: model.allConfigGroups,
       alertFunctionName: model.function.functionName,
       alertId: model.function.id,
@@ -142,7 +155,7 @@ export default Ember.Route.extend({
     /**
      * Action called on submission to reload the route's model
      */
-    refreshModel() {
+    refreshModel: function() {
       this.refresh();
     }
   }

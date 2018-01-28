@@ -3,8 +3,6 @@ package com.linkedin.thirdeye.datalayer.pojo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class EventBean extends AbstractBean {
@@ -79,23 +77,4 @@ public class EventBean extends AbstractBean {
   public void setStartTime(long startTime) {
     this.startTime = startTime;
   }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(getId(), name, eventType, targetDimensionMap, service, metric, startTime, endTime);
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    if (!(obj instanceof EventBean)) {
-      return false;
-    }
-    EventBean eb = (EventBean) obj;
-    return Objects.equals(getId(), eb.getId()) && Objects.equals(getName(), eb.getName()) &&
-        Objects.equals(getEventType(), eb.getEventType()) &&
-        Objects.equals(getTargetDimensionMap(), eb.getTargetDimensionMap()) &&
-        Objects.equals(getService(), eb.getService()) && Objects.equals(getMetric(), eb.getMetric()) &&
-        Objects.equals(getStartTime(), eb.getStartTime()) && Objects.equals(getEndTime(), eb.getEndTime());
-  }
-
 }

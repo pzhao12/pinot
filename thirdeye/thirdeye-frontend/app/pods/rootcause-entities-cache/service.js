@@ -1,6 +1,5 @@
 import Ember from 'ember';
-import { filterObject, filterPrefix, toBaselineRange, toColor } from 'thirdeye-frontend/helpers/rca-utils';
-import { checkStatus } from 'thirdeye-frontend/helpers/utils';
+import { checkStatus, filterPrefix, toBaselineRange } from 'thirdeye-frontend/helpers/utils';
 import fetch from 'fetch';
 import _ from 'lodash';
 
@@ -9,90 +8,55 @@ export default Ember.Service.extend({
 
   context: null, // {}
 
-  nativeUrns: null, // Set
-
   pending: null, // Set
-
-  errors: null, // Set({ framework, error })
 
   init() {
     this._super(...arguments);
-    this.setProperties({ entities: {}, context: {}, pending: new Set(), nativeUrns: new Set(), errors: new Set() });
-  },
-
-  clearErrors() {
-    this.setProperties({ errors: new Set() });
+    this.setProperties({ entities: {}, context: {}, pending: new Set() });
   },
 
   request(requestContext, urns) {
-    const { context, entities, nativeUrns } = this.getProperties('context', 'entities', 'nativeUrns');
-
-    // special case: urn identity
-    const requestNativeUrns = new Set(filterPrefix(urns, ['thirdeye:metric:', 'thirdeye:event:anomaly:']));
-    if (!_.isEqual(nativeUrns, requestNativeUrns)) {
-      this.setProperties({ nativeUrns: requestNativeUrns });
-
-      const missingSelectedEntities = [...requestNativeUrns].filter(urn => !entities[urn]);
-      if (missingSelectedEntities) {
-        fetch(this._makeIdentityUrl(requestNativeUrns))
-          .then(checkStatus)
-          .then(this._jsonToEntities)
-          .then(incoming => this._complete(requestContext, urns, incoming, 'identity'))
-          .catch(error => this._handleError('identity', error));
-      }
-    }
-
-    // rootcause search
-    if (!_.isEqual(context, requestContext)) {
-      const newEntities = filterObject(entities, (e) => urns.has(e.urn));
-
-      if (!requestContext.urns || !requestContext.urns.size) {
-        this.setProperties({ context: _.cloneDeep(requestContext), entities: newEntities });
-        return;
-      }
-
-      const frameworks = new Set(['events', 'metricAnalysis']);
-
-      this.setProperties({ context: _.cloneDeep(requestContext), entities: newEntities, pending: frameworks });
-
-      frameworks.forEach(framework => {
-        fetch(this._makeUrl(framework, requestContext))
-          .then(checkStatus)
-          .then(this._jsonToEntities)
-          .then(incoming => this._complete(requestContext, urns, incoming, framework))
-          .catch(error => this._handleError(framework, error));
-      });
-    }
-  },
-
-  _complete(requestContext, pinnedUrns, incoming, framework) {
-    // only accept latest result
+    console.log('rootcauseEntitiesCache: request()', requestContext, urns);
     const { context } = this.getProperties('context');
-    if (!_.isEqual(context, requestContext)) {
-      // console.log('rootcauseEntitiesCache: _complete: received stale result. ignoring.');
+    if (_.isEqual(context, requestContext)) {
+      console.log('rootcauseEntitiesCache: request: context is up-to-date. ignoring.');
       return;
     }
 
-    const pinnedBaseUrns = new Set([...pinnedUrns]);
+    const frameworks = new Set(['relatedEvents', 'relatedDimensions', 'relatedMetrics']);
+
+    this.setProperties({ context: _.cloneDeep(requestContext), pending: frameworks });
+
+    frameworks.forEach(framework => {
+      const url = this._makeUrl(framework, requestContext);
+      fetch(url)
+        // .then(checkStatus) // TODO why doesn't this return parsed json here?
+        .then(res => res.json())
+        .then(this._jsonToEntities)
+        .then(incoming => this._complete(requestContext, urns, incoming, framework));
+    });
+  },
+
+  _complete(requestContext, pinnedUrns, incoming, framework) {
+    console.log('rootcauseEntitiesCache: complete()', requestContext, pinnedUrns, incoming, framework);
+
+    // only accept latest result
+    const { context } = this.getProperties('context');
+    if (!_.isEqual(context, requestContext)) {
+      console.log('rootcauseEntitiesCache: _complete: received stale result. ignoring.');
+      return;
+    }
 
     // evict unselected
     const { entities, pending } = this.getProperties('entities', 'pending');
     const stale = new Set(this._evictionCandidates(entities, framework));
-    const staleSelected = new Set([...stale].filter(urn => pinnedBaseUrns.has(urn)));
-    const staleUnselected = new Set([...stale].filter(urn => !pinnedBaseUrns.has(urn)));
-
-    // TODO dedicated _complete_identity() method?
-    // adjust incoming scores for identity
-    if (framework === 'identity') {
-      Object.keys(incoming).filter(urn => urn in entities).forEach(urn => incoming[urn].score = entities[urn].score);
-    }
-
-    // augment color property
-    Object.keys(incoming).forEach(urn => incoming[urn].color = toColor(urn));
+    const staleSelected = new Set([...stale].filter(urn => pinnedUrns.has(urn)));
+    const staleUnselected = new Set([...stale].filter(urn => !pinnedUrns.has(urn)));
 
     // rebuild remaining cache
     const remaining = {};
     Object.keys(entities).filter(urn => !staleUnselected.has(urn)).forEach(urn => remaining[urn] = entities[urn]);
+    Object.keys(entities).filter(urn => staleSelected.has(urn)).forEach(urn => remaining[urn].score = -1);
 
     // merge
     const newEntities = Object.assign({}, remaining, incoming);
@@ -105,20 +69,19 @@ export default Ember.Service.extend({
   },
 
   _evictionCandidates(entities, framework) {
-    switch (framework) {
-      case 'events':
-        return filterPrefix(Object.keys(entities), 'thirdeye:event:');
-      case 'metricAnalysis':
-        return filterPrefix(Object.keys(entities), 'thirdeye:metric:');
-      case 'identity':
-        return [];
-      default:
-        return [];
+    if (framework == 'relatedEvents') {
+      return filterPrefix(Object.keys(entities), 'thirdeye:event:');
+    }
+    if (framework == 'relatedDimensions') {
+      return filterPrefix(Object.keys(entities), 'thirdeye:dimension:');
+    }
+    if (framework == 'relatedMetrics') {
+      return filterPrefix(Object.keys(entities), ['thirdeye:metric:', 'frontend:metric:']);
     }
   },
 
   _makeUrl(framework, context) {
-    const urnString = filterPrefix(context.urns, 'thirdeye:metric:').map(encodeURIComponent).join(',');
+    const urnString = [...context.urns].join(',');
     const baselineRange = toBaselineRange(context.anomalyRange, context.compareMode);
     return `/rootcause/query?framework=${framework}` +
       `&anomalyStart=${context.anomalyRange[0]}&anomalyEnd=${context.anomalyRange[1]}` +
@@ -127,27 +90,10 @@ export default Ember.Service.extend({
       `&urns=${urnString}`;
   },
 
-  _makeIdentityUrl(urns) {
-    const urnString = [...urns].map(encodeURIComponent).join(',');
-    return `/rootcause/raw?framework=identity&urns=${urnString}`;
-  },
-
   _jsonToEntities(res) {
     if (_.isEmpty(res)) {
       return {};
     }
     return res.reduce((agg, e) => { agg[e.urn] = e; return agg; }, {});
-  },
-
-  _handleError(framework, error) {
-    const { errors, pending } = this.getProperties('errors', 'pending');
-
-    const newError = framework;
-    const newErrors = new Set([...errors, newError]);
-
-    const newPending = new Set(pending);
-    newPending.delete(framework);
-
-    this.setProperties({ errors: newErrors, pending: newPending });
   }
 });

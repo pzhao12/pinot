@@ -15,6 +15,4 @@ public interface AnomalyFunctionManager extends AbstractManager<AnomalyFunctionD
 
   List<AnomalyFunctionDTO> findWhereNameLike(String name);
 
-  AnomalyFunctionDTO findWhereNameEquals(String name);
-
 }

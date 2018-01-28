@@ -22,6 +22,7 @@ import com.linkedin.pinot.common.segment.StarTreeMetadata;
 import com.linkedin.pinot.core.segment.creator.impl.V1Constants;
 import com.linkedin.pinot.startree.hll.HllConstants;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
@@ -235,6 +236,12 @@ public class SimpleSegmentMetadata implements SegmentMetadata {
   @Nullable
   @Override
   public String getDerivedColumn(String column, MetricFieldSpec.DerivedMetricType derivedMetricType) {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public List<String> getOptimizations() {
     return null;
   }
 }

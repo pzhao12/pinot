@@ -2,7 +2,6 @@ package com.linkedin.thirdeye.rootcause.impl;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.TreeMultimap;
 import com.linkedin.thirdeye.dataframe.DataFrame;
 import com.linkedin.thirdeye.dataframe.DoubleSeries;
 import com.linkedin.thirdeye.dataframe.StringSeries;
@@ -45,10 +44,8 @@ import org.slf4j.LoggerFactory;
  * MetricEntities in the search context. It then maps the metrics to ThirdEye's internal database
  * and performs contribution analysis using a {@code DimensionScorer).
  *
- * @see MetricBreakdownPipeline as a replacement that relies on MetricEntities with filters in the
- * tail of the URN
+ * @see DimensionScorer
  */
-@Deprecated
 public class DimensionAnalysisPipeline extends Pipeline {
   private static final Logger LOG = LoggerFactory.getLogger(DimensionAnalysisPipeline.class);
 
@@ -121,10 +118,6 @@ public class DimensionAnalysisPipeline extends Pipeline {
 
     for(MetricEntity me : metricsEntities) {
       try {
-        Multimap<String, String> metricFilters = TreeMultimap.create(); // sorted, unique
-        metricFilters.putAll(filters);
-        metricFilters.putAll(me.getFilters());
-
         final MetricSlice sliceCurrent = MetricSlice.from(me.getId(), anomaly.getStart(), anomaly.getEnd(), filters);
         final MetricSlice sliceBaseline = MetricSlice.from(me.getId(), baseline.getStart(), baseline.getEnd(), filters);
 

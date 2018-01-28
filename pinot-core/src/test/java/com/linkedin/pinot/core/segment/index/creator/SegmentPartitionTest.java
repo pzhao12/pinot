@@ -26,7 +26,8 @@ import com.linkedin.pinot.common.segment.ReadMode;
 import com.linkedin.pinot.common.utils.request.FilterQueryTree;
 import com.linkedin.pinot.common.utils.request.RequestUtils;
 import com.linkedin.pinot.core.data.GenericRow;
-import com.linkedin.pinot.core.data.readers.GenericRowRecordReader;
+import com.linkedin.pinot.core.data.readers.RecordReader;
+import com.linkedin.pinot.core.data.readers.TestRecordReader;
 import com.linkedin.pinot.core.indexsegment.IndexSegment;
 import com.linkedin.pinot.core.indexsegment.generator.SegmentGeneratorConfig;
 import com.linkedin.pinot.core.query.pruner.PartitionSegmentPruner;
@@ -305,8 +306,9 @@ public class SegmentPartitionTest {
     config.setTableName(TABLE_NAME);
     config.setSegmentPartitionConfig(segmentPartitionConfig);
 
-    List<GenericRow> rows = new ArrayList<>(NUM_ROWS);
-    for (int i = 0; i < NUM_ROWS; i++) {
+    final List<GenericRow> rows = new ArrayList<>();
+
+    for (int row = 0; row < NUM_ROWS; row++) {
       HashMap<String, Object> map = new HashMap<>();
 
       int validPartitionedValue = random.nextInt(100) * 20 + random.nextInt(PARTITION_DIVISOR);
@@ -319,7 +321,8 @@ public class SegmentPartitionTest {
     }
 
     SegmentIndexCreationDriverImpl driver = new SegmentIndexCreationDriverImpl();
-    driver.init(config, new GenericRowRecordReader(rows, schema));
+    RecordReader reader = new TestRecordReader(rows, schema);
+    driver.init(config, reader);
     driver.build();
     _segment = Loaders.IndexSegment.load(new File(SEGMENT_PATH), ReadMode.mmap);
   }

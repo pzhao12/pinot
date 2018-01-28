@@ -3,9 +3,22 @@ import RSVP from 'rsvp';
 import fetch from 'fetch';
 import moment from 'moment';
 import AuthenticatedRouteMixin from 'ember-simple-auth/mixins/authenticated-route-mixin';
-import { toCurrentUrn, toBaselineUrn, filterPrefix, appendFilters, toFilters, dateFormatFull } from 'thirdeye-frontend/helpers/rca-utils';
-import { checkStatus } from 'thirdeye-frontend/helpers/utils';
-import _ from 'lodash';
+
+
+const anomalyRange = [1509044400000, 1509422400000];
+const compareMode = 'WoW';
+const analysisRange = [1508785200000, 1509422400000];
+const urns = new Set(['thirdeye:metric:194591', 'thirdeye:dimension:countryCode:in:provided']);
+const granularity = '15_MINUTES';
+
+const testContext = { urns, anomalyRange, compareMode, analysisRange, granularity };
+const testSelectedUrns = new Set([
+  'thirdeye:metric:194591', 'frontend:metric:current:194591', 'frontend:metric:baseline:194591',
+  'thirdeye:metric:194592', 'frontend:metric:current:194592', 'frontend:metric:baseline:194592',
+  'thirdeye:metric:194591:browserName=chrome:browserName=firefox:browserName=safari',
+  'frontend:metric:current:194591:browserName=chrome:browserName=firefox:browserName=safari',
+  'frontend:metric:baseline:194591:browserName=chrome:browserName=firefox:browserName=safari',
+  'thirdeye:event:holiday:2712391']);
 
 const queryParamsConfig = {
   refreshModel: false,
@@ -27,18 +40,6 @@ const isValid = (key, value) => {
       return value && value.length;
     case 'compareMode':
       return ['WoW', 'Wo2W', 'Wo3W', 'Wo4W'];
-    case 'metricId':
-      return !value || (Number.isInteger(value) && parseInt(value) >= 0);
-    case 'anomalyId':
-      return !value || (Number.isInteger(value) && parseInt(value) >= 0);
-    case 'shareId':
-      return true;
-    case 'metricUrn':
-      return !value || value.startsWith('thirdeye:metric:');
-    case 'anomalyUrn':
-      return !value || value.startsWith('thirdeye:event:anomaly:');
-    case 'share':
-      return !value || JSON.parse(value);
     default:
       return moment(+value).isValid();
   }
@@ -60,53 +61,40 @@ const _filterToUrn = (filters) => {
 
 export default Ember.Route.extend(AuthenticatedRouteMixin, {
   queryParams: {
-    metricId: queryParamsConfig,
-    anomalyId: queryParamsConfig,
-    sessionId: queryParamsConfig
+    granularity: queryParamsConfig,
+    filters: queryParamsConfig,
+    compareMode: queryParamsConfig,
+    analysisRangeStart: queryParamsConfig,
+    analysisRangeEnd: queryParamsConfig,
+    anomalyRangeStart: queryParamsConfig,
+    anomalyRangeEnd: queryParamsConfig
   },
 
   model(params) {
-    const { metricId, anomalyId, sessionId } = params;
+    const { rootcauseId: id } = params;
 
-    let metricUrn, anomalyUrn, session, anomalyContext;
-
-    if (metricId) {
-      metricUrn = `thirdeye:metric:${metricId}`;
-    }
-
-    if (anomalyId) {
-      anomalyUrn = `thirdeye:event:anomaly:${anomalyId}`;
-    }
-
-    if (sessionId) {
-      session = fetch(`/session/${sessionId}`).then(checkStatus).catch(res => undefined);
-    }
-
-    if (anomalyUrn) {
-      anomalyContext = fetch(`/rootcause/raw?framework=anomalyContext&urns=${anomalyUrn}`).then(checkStatus).catch(res => undefined);
-    }
+    // TODO handle error better
+    if (!id) { return; }
 
     return RSVP.hash({
-      metricId,
-      anomalyId,
-      sessionId,
-      metricUrn,
-      anomalyUrn,
-      session,
-      anomalyContext
+      //granularityOptions: fetch(`/data/agg/granularity/metric/${id}`).then(res => res.json()),
+      granularityOptions: ['5_MINUTES', '15_MINUTES', '1_HOURS', '3_HOURS', '1_DAYS'],
+      filterOptions: fetch(`/data/autocomplete/filters/metric/${id}`).then(res => res.json()),
+      maxTime: fetch(`/data/maxDataTime/metricId/${id}`).then(res => res.json()),
+      metricName: fetch(`/data/metric/${id}`).then(res => res.json()).then(res => res.name),
+      compareModeOptions: ['WoW', 'Wo2W', 'Wo3W', 'Wo4W'],
+      id
     });
   },
 
   afterModel(model, transition) {
-    const maxTime = moment().startOf('hour').valueOf();
-
     const defaultParams = {
       filters: JSON.stringify({}),
-      granularity: '1_HOURS',
-      anomalyRangeStart:  moment(maxTime).subtract(3, 'hours').valueOf(),
-      anomalyRangeEnd: moment(maxTime).valueOf(),
-      analysisRangeStart: moment(maxTime).endOf('day').subtract(1, 'week').valueOf() + 1,
-      analysisRangeEnd: moment(maxTime).endOf('day').valueOf() + 1,
+      granularity: model.granularityOptions[0],
+      anomalyRangeStart: moment().subtract(1, 'day').valueOf(),
+      anomalyRangeEnd: model.maxTime || moment().valueOf(),
+      analysisRangeStart: moment().subtract(1, 'week').valueOf(),
+      analysisRangeEnd: model.maxTime,
       compareMode: 'WoW'
     };
     let { queryParams } = transition;
@@ -120,8 +108,7 @@ export default Ember.Route.extend(AuthenticatedRouteMixin, {
         hash[key] = queryParams[key];
         return hash;
       }, {});
-
-    return Object.assign(
+    Object.assign(
       model,
       { queryParams: { ...defaultParams, ...validParams }}
     );
@@ -140,123 +127,29 @@ export default Ember.Route.extend(AuthenticatedRouteMixin, {
       anomalyRangeEnd
     } = model.queryParams;
 
-    let {
-      anomalyId,
-      metricId,
-      sessionId,
-      metricUrn,
-      anomalyUrn,
-      session,
-      anomalyContext
-    } = model;
-
-    const anomalyRange = [anomalyRangeStart, anomalyRangeEnd];
-    const analysisRange = [analysisRangeStart, analysisRangeEnd];
-
-    // default blank context
-    let context = {
-      urns: new Set(),
-      anomalyRange,
-      analysisRange,
-      granularity,
-      compareMode,
-      anomalyUrns: new Set()
+    const settingsConfig = {
+      granularityOptions: model.granularityOptions,
+      filterOptions: model.filterOptions,
+      compareModeOptions: model.compareModeOptions,
+      maxTime: model.maxTime
     };
 
-    let selectedUrns = new Set();
-    let sessionName = 'New Investigation (' + moment().format(dateFormatFull) + ')';
-    let sessionText = '';
-    let sessionUpdatedBy = '';
-    let sessionUpdatedTime = '';
-    let sessionModified = true;
-    let routeErrors = new Set();
-
-    // metric-initialized context
-    if (metricId && metricUrn) {
-      context = {
-        urns: new Set([metricUrn, ..._filterToUrn(filters)]),
-        anomalyRange,
-        analysisRange,
-        granularity,
-        compareMode,
-        anomalyUrns: new Set()
-      };
-
-      selectedUrns = new Set([metricUrn, toCurrentUrn(metricUrn), toBaselineUrn(metricUrn)]);
-    }
-
-    // anomaly-initialized context
-    if (anomalyId && anomalyUrn) {
-      if (!_.isEmpty(anomalyContext)) {
-        const contextUrns = anomalyContext.map(e => e.urn);
-
-        const baseMetricUrns = filterPrefix(contextUrns, 'thirdeye:metric:');
-        const dimensionUrns = filterPrefix(contextUrns, 'thirdeye:dimension:');
-
-        const metricUrns = baseMetricUrns.map(urn => appendFilters(urn, toFilters(dimensionUrns)));
-
-        const anomalyRangeUrns = filterPrefix(contextUrns, 'thirdeye:timerange:anomaly:');
-        const analysisRangeUrns = filterPrefix(contextUrns, 'thirdeye:timerange:analysis:');
-
-        // thirdeye:timerange:anomaly:{start}:{end}
-        const anomalyRange = _.slice(anomalyRangeUrns[0].split(':'), 3, 5).map(i => parseInt(i, 10));
-
-        // thirdeye:timerange:analysis:{start}:{end}
-        // align to local end of day
-        const [rawStart, rawEnd] = _.slice(analysisRangeUrns[0].split(':'), 3, 5).map(i => parseInt(i, 10));
-        const analysisRange = [moment(rawStart).startOf('day').add(1, 'day').valueOf(), moment(rawEnd).endOf('day').valueOf()];
-
-        context = {
-          urns: new Set([...metricUrns]),
-          anomalyRange,
-          analysisRange,
-          granularity,
-          compareMode,
-          anomalyUrns: new Set([...metricUrns, anomalyUrn])
-        };
-
-        selectedUrns = new Set([...metricUrns, ...metricUrns.map(toCurrentUrn), ...metricUrns.map(toBaselineUrn), anomalyUrn]);
-        sessionName = 'New Investigation of #' + anomalyId + ' (' + moment().format(dateFormatFull) + ')';
-
-      } else {
-        routeErrors.add(`Could not find anomalyId ${anomalyId}`);
-      }
-    }
-
-    // session-initialized context
-    if (sessionId) {
-      if (!_.isEmpty(session)) {
-        const { name, text, updatedBy, updated } = model.session;
-        context = {
-          urns: new Set(session.contextUrns),
-          anomalyRange: [session.anomalyRangeStart, session.anomalyRangeEnd],
-          analysisRange: [session.analysisRangeStart, session.analysisRangeEnd],
-          granularity: session.granularity,
-          compareMode: session.compareMode,
-          anomalyUrns: new Set(session.anomalyUrns || [])
-        };
-        selectedUrns = new Set(session.selectedUrns);
-
-        sessionName = name;
-        sessionText = text;
-        sessionUpdatedBy = updatedBy;
-        sessionUpdatedTime = updated;
-        sessionModified = false;
-
-      } else {
-        routeErrors.add(`Could not find sessionId ${sessionId}`);
-      }
-    }
+    const context = {
+      urns: new Set([`thirdeye:metric:${model.id}`, ..._filterToUrn(filters)]),
+      anomalyRange: [anomalyRangeStart, anomalyRangeEnd],
+      analysisRange: [analysisRangeStart, analysisRangeEnd],
+      granularity,
+      compareMode
+    };
 
     controller.setProperties({
-      routeErrors,
-      sessionId,
-      sessionName,
-      sessionText,
-      sessionUpdatedBy,
-      sessionUpdatedTime,
-      sessionModified,
-      selectedUrns,
+      // selectedUrns: testSelectedUrns,
+      selectedUrns: new Set([`thirdeye:metric:${model.id}`, `frontend:metric:current:${model.id}`, `frontend:metric:baseline:${model.id}`]),
+      invisibleUrns: new Set(),
+      hoverUrns: new Set(),
+      filteredUrns: new Set(),
+      settingsConfig,
+      // context: testContext
       context
     });
   }

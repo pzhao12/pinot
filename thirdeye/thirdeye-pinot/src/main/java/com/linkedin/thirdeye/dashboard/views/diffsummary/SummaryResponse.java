@@ -1,7 +1,5 @@
 package com.linkedin.thirdeye.dashboard.views.diffsummary;
 
-import com.linkedin.thirdeye.client.diffsummary.Cube;
-import com.linkedin.thirdeye.client.diffsummary.costfunctions.CostFunction;
 import com.linkedin.thirdeye.client.diffsummary.DimNameValueCostEntry;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
@@ -9,6 +7,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.apache.commons.lang3.builder.ToStringStyle;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.linkedin.thirdeye.client.diffsummary.DimensionValues;
@@ -24,23 +25,11 @@ public class SummaryResponse {
   static final String NOT_ALL = "(ALL)-";
   static final String NOT_AVAILABLE = "-na-";
 
-  @JsonProperty("dataset")
-  private String dataset;
-
   @JsonProperty("metricName")
   private String metricName;
 
-  @JsonProperty("baselineTotal")
-  private double baselineTotal = 0d;
-
-  @JsonProperty("currentTotal")
-  private double currentTotal = 0d;
-
-  @JsonProperty("globalRatio")
-  private double globalRatio = 1d;
-
   @JsonProperty("dimensions")
-  private List<String> dimensions = new ArrayList<>();
+  List<String> dimensions = new ArrayList<>();
 
   @JsonProperty("responseRows")
   private List<SummaryResponseRow> responseRows = new ArrayList<>();
@@ -51,16 +40,9 @@ public class SummaryResponse {
   @JsonProperty("loser")
   private List<SummaryGainerLoserResponseRow> loser = new ArrayList<>();
 
-  @JsonProperty("dimensinoCosts")
-  private List<Cube.DimensionCost> dimensionCosts = new ArrayList<>();
+  private double totalBaselineValue = 0d;
 
-  public String getDataset() {
-    return dataset;
-  }
-
-  public void setDataset(String dataset) {
-    this.dataset = dataset;
-  }
+  private double totalCurrentValue = 0d;
 
   public String getMetricName() {
     return metricName;
@@ -82,32 +64,18 @@ public class SummaryResponse {
     return loser;
   }
 
-  public List<Cube.DimensionCost> getDimensionCosts() {
-    return dimensionCosts;
-  }
-
-  public void setDimensionCosts(List<Cube.DimensionCost> dimensionCosts) {
-    this.dimensionCosts = dimensionCosts;
-  }
-
-  public static SummaryResponse buildNotAvailableResponse(String dataset, String metricName) {
+  public static SummaryResponse buildNotAvailableResponse() {
     SummaryResponse response = new SummaryResponse();
-    response.setDataset(dataset);
-    response.setMetricName(metricName);
     response.dimensions.add(NOT_AVAILABLE);
+//    response.responseRows.add(SummaryResponseRow.buildNotAvailableRow());
     return response;
   }
 
-  public void buildGainerLoserGroup(List<DimNameValueCostEntry> costSet) {
+  private void buildGainerLoserGroup(List<DimNameValueCostEntry> costSet) {
     for (DimNameValueCostEntry dimNameValueCostEntry : costSet) {
-      if (Double.compare(dimNameValueCostEntry.getCost(), 0d) <= 0) {
-        continue;
-      }
-      if (dimNameValueCostEntry.getCurrentValue() >= dimNameValueCostEntry.getBaselineValue()
-          && gainer.size() < MAX_GAINER_LOSER_COUNT) {
+      if (dimNameValueCostEntry.getCurrentValue() >= dimNameValueCostEntry.getBaselineValue() && gainer.size() < MAX_GAINER_LOSER_COUNT) {
         gainer.add(buildGainerLoserRow(dimNameValueCostEntry));
-      } else if (dimNameValueCostEntry.getCurrentValue() < dimNameValueCostEntry.getBaselineValue()
-          && loser.size() < MAX_GAINER_LOSER_COUNT) {
+      } else if (dimNameValueCostEntry.getCurrentValue() < dimNameValueCostEntry.getBaselineValue() && loser.size() < MAX_GAINER_LOSER_COUNT) {
         loser.add(buildGainerLoserRow(dimNameValueCostEntry));
       }
       if (gainer.size() >= MAX_GAINER_LOSER_COUNT && loser.size() >= MAX_GAINER_LOSER_COUNT) {
@@ -124,22 +92,21 @@ public class SummaryResponse {
     row.dimensionValue = costEntry.getDimValue();
     row.percentageChange = computePercentageChange(row.baselineValue, row.currentValue);
     row.contributionChange =
-        computeContributionChange(row.baselineValue, row.currentValue, baselineTotal, currentTotal);
+        computeContributionChange(row.baselineValue, row.currentValue, totalBaselineValue, totalCurrentValue);
     row.contributionToOverallChange =
-        computeContributionToOverallChange(row.baselineValue, row.currentValue, baselineTotal, currentTotal);
+        computeContributionToOverallChange(row.baselineValue, row.currentValue, totalBaselineValue);
     row.cost = DOUBLE_FORMATTER.format(roundUp(costEntry.getCost()));
     return row;
   }
 
-  public void buildDiffSummary(List<HierarchyNode> nodes, int targetLevelCount, CostFunction costFunction) {
+  public void build(List<HierarchyNode> nodes, int targetLevelCount, List<DimNameValueCostEntry> costSet) {
     // Compute the total baseline and current value
     for(HierarchyNode node : nodes) {
-      baselineTotal += node.getBaselineValue();
-      currentTotal += node.getCurrentValue();
+      totalBaselineValue += node.getBaselineValue();
+      totalCurrentValue += node.getCurrentValue();
     }
-    if (Double.compare(baselineTotal, 0d) != 0) {
-      globalRatio = roundUp(currentTotal / baselineTotal);
-    }
+
+    this.buildGainerLoserGroup(costSet);
 
     // If all nodes have a lower level count than targetLevelCount, then it is not necessary to print the summary with
     // height higher than the available level.
@@ -151,12 +118,12 @@ public class SummaryResponse {
 
     // Build the header
     Dimensions dimensions = nodes.get(0).getDimensions();
-    for (int i = 0; i < dimensions.size(); ++i) {
+    for (int i = 0; i < targetLevelCount; ++i) {
       this.dimensions.add(dimensions.get(i));
     }
 
     // Build the response
-    nodes = SummaryResponseTree.sortResponseTree(nodes, targetLevelCount, costFunction);
+    nodes = SummaryResponseTree.sortResponseTree(nodes, targetLevelCount);
     //   Build name tag for each row of responses
     Map<HierarchyNode, NameTag> nameTags = new HashMap<>();
     Map<HierarchyNode, List<String>> otherDimensionValues = new HashMap<>();
@@ -197,10 +164,9 @@ public class SummaryResponse {
       row.currentValue = node.getCurrentValue();
       row.percentageChange = computePercentageChange(row.baselineValue, row.currentValue);
       row.contributionChange =
-          computeContributionChange(row.baselineValue, row.currentValue, baselineTotal, currentTotal);
+          computeContributionChange(row.baselineValue, row.currentValue, totalBaselineValue, totalCurrentValue);
       row.contributionToOverallChange =
-          computeContributionToOverallChange(row.baselineValue, row.currentValue, baselineTotal, currentTotal);
-      row.cost = node.getCost();
+          computeContributionToOverallChange(row.baselineValue, row.currentValue, totalBaselineValue);
       StringBuilder sb = new StringBuilder();
       String separator = "";
       for (String s : otherDimensionValues.get(node)) {
@@ -221,20 +187,18 @@ public class SummaryResponse {
     }
   }
 
-  private static String computeContributionChange(double baseline, double current, double baselineTotal,
-      double currentTotal) {
-    if (currentTotal != 0d && baselineTotal != 0d) {
-      double contributionChange = ((current / currentTotal) - (baseline / baselineTotal)) * 100d;
+  private static String computeContributionChange(double baseline, double current, double totalBaseline, double totalCurrent) {
+    if (totalCurrent != 0d && totalBaseline != 0d) {
+      double contributionChange = ((current / totalCurrent) - (baseline / totalBaseline)) * 100d;
       return DOUBLE_FORMATTER.format(roundUp(contributionChange)) + "%";
     } else {
       return INFINITE;
     }
   }
 
-  private static String computeContributionToOverallChange(double baseline, double current, double baselineTotal,
-      double currentTotal) {
-    if (baselineTotal != 0d) {
-      double contributionToOverallChange = ((current - baseline) / Math.abs(currentTotal - baselineTotal)) * 100d;
+  private static String computeContributionToOverallChange(double baseline, double current, double totalBaseline) {
+    if (totalBaseline != 0d) {
+      double contributionToOverallChange = ((current - baseline) / (totalBaseline)) * 100d;
       return DOUBLE_FORMATTER.format(roundUp(contributionToOverallChange)) + "%";
     } else {
       return INFINITE;
@@ -246,12 +210,12 @@ public class SummaryResponse {
   }
 
   public String toString() {
-    StringBuilder sb = new StringBuilder(SummaryResponse.class.getSimpleName());
-    sb.append("\n\t").append(this.dimensions);
+    ToStringBuilder tsb = new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE);
+    tsb.append('\n').append(this.dimensions);
     for (SummaryResponseRow row : getResponseRows()) {
-      sb.append("\n\t").append(row);
+      tsb.append('\n').append(row);
     }
-    return sb.toString();
+    return tsb.toString();
   }
 
   private static class NameTag {

@@ -1,7 +1,5 @@
 import Ember from 'ember';
-import { getProperties, computed } from '@ember/object';
-import { toCurrentUrn, toBaselineUrn, appendFilters, isInverse, isAdditive } from 'thirdeye-frontend/helpers/rca-utils';
-import { humanizeChange } from 'thirdeye-frontend/helpers/utils';
+import { toCurrentUrn, toBaselineUrn, filterPrefix } from 'thirdeye-frontend/helpers/utils';
 import _ from 'lodash';
 
 const ROOTCAUSE_ROLLUP_MODE_CHANGE = 'change';
@@ -15,72 +13,46 @@ const ROOTCAUSE_ROLE_VALUE = 'value';
 const ROOTCAUSE_ROLE_HEAD = 'head';
 const ROOTCAUSE_ROLE_TAIL = 'tail';
 
-const ROOTCAUSE_ROLLUP_RANGE = [0, 20];
-
-const ROOTCAUSE_MODE_MAPPING = {
-  'Percentage Change': ROOTCAUSE_ROLLUP_MODE_CHANGE,
-  'Change in Contribution': ROOTCAUSE_ROLLUP_MODE_CONTRIBUTION_DIFF,
-  'Contribution to Overall Change': ROOTCAUSE_ROLLUP_MODE_CONTRIBUTION_TO_DIFF
-};
+const ROOTCAUSE_ROLLUP_RANGE_DEFAULT = [0, 10];
 
 export default Ember.Component.extend({
-  //
-  // external
-  //
-  entities: null, // {}
-
   breakdowns: null, // {}
 
-  selectedUrn: null, // Set
+  selectedUrns: null, // Set
+
+  currentUrn: null, // ""
 
   onSelection: null, // func (updates)
 
-  isLoadingBreakdowns: null, // bool
+  rollupRange: null, // ""
 
-  //
-  // internal
-  //
+  mode: null, // ""
 
-  /**
-   * Selected heatmap mode
-   */
-  selectedMode: Object.keys(ROOTCAUSE_MODE_MAPPING)[0],
+  init() {
+    this._super(...arguments);
 
-  /**
-   * Lists out all heatmap mode options
-   */
-  modeOptions: Object.keys(ROOTCAUSE_MODE_MAPPING),
+    this.setProperties({ rollupRange: {}, mode: ROOTCAUSE_ROLLUP_MODE_CHANGE});
+  },
 
-  /**
-   * Mapping of human readable to mode option
-   */
-  modeMapping: ROOTCAUSE_MODE_MAPPING,
-
-  /**
-   * Computes the correct mode option based on the
-   * selected human readable option
-   * @type {String}
-   */
-  mode: computed('selectedMode', function() {
-    const {
-      selectedMode,
-      modeMapping
-    } = getProperties(this, 'selectedMode', 'modeMapping');
-
-    return modeMapping[selectedMode];
-  }),
+  urns: Ember.computed(
+    'selectedUrns',
+    function () {
+      const { selectedUrns } = this.getProperties('selectedUrns');
+      return filterPrefix(selectedUrns, 'thirdeye:metric:');
+    }
+  ),
 
   current: Ember.computed(
     'breakdowns',
-    'selectedUrn',
+    'currentUrn',
     function () {
-      const { breakdowns, selectedUrn } =
-        this.getProperties('breakdowns', 'selectedUrn');
+      const { breakdowns, currentUrn } =
+        this.getProperties('breakdowns', 'currentUrn');
 
-      if (!selectedUrn) {
+      if (!currentUrn) {
         return {};
       }
-      const breakdown = breakdowns[toCurrentUrn(selectedUrn)];
+      const breakdown = breakdowns[toCurrentUrn(currentUrn)];
 
       if (!breakdown) {
         return {};
@@ -91,61 +63,20 @@ export default Ember.Component.extend({
 
   baseline: Ember.computed(
     'breakdowns',
-    'selectedUrn',
+    'currentUrn',
     function () {
-      const { breakdowns, selectedUrn } =
-        this.getProperties('breakdowns', 'selectedUrn');
+      const { breakdowns, currentUrn } =
+        this.getProperties('breakdowns', 'currentUrn');
 
-      if (!selectedUrn) {
+      if (!currentUrn) {
         return {};
       }
-      const breakdown = breakdowns[toBaselineUrn(selectedUrn)];
+      const breakdown = breakdowns[toBaselineUrn(currentUrn)];
 
       if (!breakdown) {
         return {};
       }
       return breakdown;
-    }
-  ),
-
-  hasCurrent: Ember.computed(
-    'current',
-    'isLoadingBreakdowns',
-    function () {
-      const { current, isLoadingBreakdowns } = this.getProperties('current', 'isLoadingBreakdowns');
-      return isLoadingBreakdowns || !_.isEmpty(current);
-    }
-  ),
-
-  hasBaseline: Ember.computed(
-    'baseline',
-    'isLoadingBreakdowns',
-    function () {
-      const { baseline, isLoadingBreakdowns } = this.getProperties('baseline', 'isLoadingBreakdowns');
-      return isLoadingBreakdowns || !_.isEmpty(baseline);
-    }
-  ),
-
-  isInverse: Ember.computed(
-    'selectedUrn',
-    'entities',
-    function () {
-      const { selectedUrn, entities } = this.getProperties('selectedUrn', 'entities');
-      return isInverse(selectedUrn, entities);
-    }
-  ),
-
-  isAdditive: Ember.computed(
-    'selectedUrn',
-    'entities',
-    function () {
-      const { selectedUrn, entities } = this.getProperties('selectedUrn', 'entities');
-      // prevent flashing error message
-      if (!(selectedUrn in entities)) {
-        return true;
-      }
-
-      return isAdditive(selectedUrn, entities);
     }
   ),
 
@@ -171,13 +102,16 @@ export default Ember.Component.extend({
         // order based on current contribution
         const all = this._sortKeysByValue(current[n]).reverse();
 
-        const range = ROOTCAUSE_ROLLUP_RANGE;
+        const range = rollupRange[n] || ROOTCAUSE_ROLLUP_RANGE_DEFAULT;
         const head = _.slice(all, 0, range[0]);
         const visible = _.slice(all, range[0], range[1]);
         const tail = _.slice(all, range[1]);
 
         const curr = this._makeRollup(current[n], head, visible, tail);
         const base = this._makeRollup(baseline[n], head, visible, tail);
+
+        console.log('rootcauseHeatmap: _dataRollup: n curr', n, curr);
+        console.log('rootcauseHeatmap: _dataRollup: n base', n, base);
 
         values[n] = [ROOTCAUSE_ROLLUP_HEAD, ...visible, ROOTCAUSE_ROLLUP_TAIL].map(v => {
           return {
@@ -198,51 +132,43 @@ export default Ember.Component.extend({
   cells: Ember.computed(
     '_dataRollup',
     'mode',
-    'isInverse',
     function () {
-      const { _dataRollup: values, mode, isInverse } =
-        this.getProperties('_dataRollup', 'mode', 'isInverse');
+      const { _dataRollup: values, mode } = this.getProperties('_dataRollup', 'mode');
 
       const transformation = this._makeTransformation(mode);
+
+      console.log('rootcauseHeatmap: cells: values', values);
 
       const cells = {};
       Object.keys(values).forEach(n => {
         cells[n] = [];
         const valid = values[n].filter(val => val.current);
 
-        const currTotal = this._makeSum(valid, (v) => v.current);
-        const baseTotal = this._makeSum(valid, (v) => v.baseline);
+        const visibleTotal = valid.filter(v => v.role == ROOTCAUSE_ROLE_VALUE);
+        const currTotal = this._makeSum(visibleTotal, (v) => v.current);
+        const baseTotal = this._makeSum(visibleTotal, (v) => v.baseline);
+
+        const sizeCoeff = 1.0 - (valid.length - visibleTotal.length) / 2.0 * 0.10; // head & tail
 
         valid.forEach((val, index) => {
           const curr = val.current;
           const base = val.baseline;
 
-          const labelChange = transformation(curr, base, currTotal, baseTotal);
+          const [value, valueLabel] = this._makeValueLabel(val, transformation(curr, base, currTotal, baseTotal));
 
-          const [value, labelValue] = this._makeValueLabel(val, labelChange);
-          const size = curr / currTotal;
+          let size = curr / currTotal * sizeCoeff;
+          if (val.role != ROOTCAUSE_ROLE_VALUE) {
+            size = 0.05; // head or tail
+          }
 
           cells[n].push({
             index,
             role: val.role,
             dimName: val.dimName,
             dimValue: val.dimValue,
-            label: labelValue,
-            value,
-            size,
-            inverse: isInverse,
-
-            currTotal,
-            baseTotal,
-            changeTotal: humanizeChange(currTotal / baseTotal - 1),
-
-            curr,
-            base,
-            change: humanizeChange(curr / base - 1),
-
-            currContrib: `${(Math.round(curr / currTotal * 1000) / 10.0).toFixed(1)}%`,
-            baseContrib: `${(Math.round(base / baseTotal * 1000) / 10.0).toFixed(1)}%`,
-            changeContrib: humanizeChange((curr / currTotal) - (base / baseTotal))
+            label: valueLabel,
+            value: value, // percent, 2 commas
+            size: size // percent, 2 commas
           });
         });
       });
@@ -264,10 +190,10 @@ export default Ember.Component.extend({
   _makeValueLabel(val, value) {
     if (val.role != ROOTCAUSE_ROLE_VALUE) {
       if (val.label == ROOTCAUSE_ROLLUP_HEAD) {
-        return [0, 'HEAD'];
+        return [0, '<<'];
       }
       if (val.label == ROOTCAUSE_ROLLUP_TAIL) {
-        return [0, 'OTHER'];
+        return [0, '>>'];
       }
       return [0, val.label];
     }
@@ -283,12 +209,12 @@ export default Ember.Component.extend({
       case ROOTCAUSE_ROLLUP_MODE_CONTRIBUTION_TO_DIFF:
         return (curr, base, currTotal, baseTotal) => (curr - base) / baseTotal;
     }
-    return (curr, base, currTotal, baseTotal) => parseFloat('NaN');
+    return (curr, base, currTotal, baseTotal) => 0;
   },
 
   _makeRollup(dimNameObj, head, visible, tail) {
     if (!dimNameObj) {
-      return {};
+      return dimNameObj;
     }
 
     const rollup = {};
@@ -310,25 +236,25 @@ export default Ember.Component.extend({
   },
 
   _sortKeysByValue(dimNameObj) {
-    if (!dimNameObj) {
-      return [];
-    }
     return Object.keys(dimNameObj).map(v => [dimNameObj[v], v]).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(t => t[1]);
   },
 
   actions: {
     onHeatmapClick(role, dimName, dimValue) {
-      const { rollupRange, selectedUrn, onSelection, currentUrn } =
-        this.getProperties('rollupRange', 'selectedUrn', 'onSelection', 'currentUrn');
-
-      // selection
-      if (role === ROOTCAUSE_ROLE_VALUE) {
-        const metricUrn = appendFilters(selectedUrn, [[dimName, dimValue]]);
-        const updates = { [metricUrn]: true, [toBaselineUrn(metricUrn)]: true, [toCurrentUrn(metricUrn)]: true };
-        if (onSelection) {
-          onSelection(updates);
-        }
+      const { rollupRange } = this.getProperties('rollupRange');
+      const range = rollupRange[dimName] || ROOTCAUSE_ROLLUP_RANGE_DEFAULT;
+      if (role == ROOTCAUSE_ROLE_HEAD) {
+        rollupRange[dimName] = range.map(v => v - 10);
+        this.set('rollupRange', Object.assign({}, rollupRange));
       }
+      if (role == ROOTCAUSE_ROLE_TAIL) {
+        rollupRange[dimName] = range.map(v => v + 10);
+        this.set('rollupRange', Object.assign({}, rollupRange));
+      }
+    },
+
+    onRollupRange(from, to) {
+      this.set('rollupRange', [parseInt(from), parseInt(to)]);
     }
   }
 });

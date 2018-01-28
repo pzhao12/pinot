@@ -20,7 +20,8 @@ import com.linkedin.pinot.common.data.FieldSpec;
 import com.linkedin.pinot.common.data.Schema;
 import com.linkedin.pinot.common.segment.ReadMode;
 import com.linkedin.pinot.core.data.GenericRow;
-import com.linkedin.pinot.core.data.readers.GenericRowRecordReader;
+import com.linkedin.pinot.core.data.readers.RecordReader;
+import com.linkedin.pinot.core.data.readers.TestRecordReader;
 import com.linkedin.pinot.core.indexsegment.IndexSegment;
 import com.linkedin.pinot.core.indexsegment.generator.SegmentGeneratorConfig;
 import com.linkedin.pinot.core.operator.BReusableFilteredDocIdSetOperator;
@@ -156,7 +157,9 @@ public class RawIndexBenchmark {
 
     System.out.println("Generating segment...");
     SegmentIndexCreationDriverImpl driver = new SegmentIndexCreationDriverImpl();
-    driver.init(config, new GenericRowRecordReader(rows, schema));
+    RecordReader recordReader = new TestRecordReader(rows, schema);
+
+    driver.init(config, recordReader);
     driver.build();
 
     return new File(SEGMENT_DIR_NAME, SEGMENT_NAME);

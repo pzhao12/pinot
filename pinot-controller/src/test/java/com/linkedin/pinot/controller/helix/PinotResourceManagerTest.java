@@ -17,7 +17,6 @@ package com.linkedin.pinot.controller.helix;
 
 import com.linkedin.pinot.common.config.TableConfig;
 import com.linkedin.pinot.common.config.TableNameBuilder;
-import com.linkedin.pinot.common.metadata.segment.OfflineSegmentZKMetadata;
 import com.linkedin.pinot.common.segment.SegmentMetadata;
 import com.linkedin.pinot.common.utils.CommonConstants;
 import com.linkedin.pinot.common.utils.ZkStarter;
@@ -94,27 +93,6 @@ public class PinotResourceManagerTest {
     _pinotHelixResourceManager.stop();
     _zkClient.close();
     ZkStarter.stopLocalZkServer(_zookeeperInstance);
-  }
-
-  @Test
-  public void testUpdateSegmentZKMetadata() {
-    OfflineSegmentZKMetadata segmentZKMetadata = new OfflineSegmentZKMetadata();
-    segmentZKMetadata.setTableName("testTable");
-    segmentZKMetadata.setSegmentName("testSegment");
-
-    // Segment ZK metadata does not exist
-    Assert.assertFalse(_pinotHelixResourceManager.updateZkMetadata(segmentZKMetadata, 0));
-
-    // Set segment ZK metadata
-    Assert.assertTrue(_pinotHelixResourceManager.updateZkMetadata(segmentZKMetadata));
-
-    // Update ZK metadata
-    Assert.assertEquals(
-        _pinotHelixResourceManager.getSegmentMetadataZnRecord("testTable_OFFLINE", "testSegment").getVersion(), 0);
-    Assert.assertTrue(_pinotHelixResourceManager.updateZkMetadata(segmentZKMetadata, 0));
-    Assert.assertEquals(
-        _pinotHelixResourceManager.getSegmentMetadataZnRecord("testTable_OFFLINE", "testSegment").getVersion(), 1);
-    Assert.assertFalse(_pinotHelixResourceManager.updateZkMetadata(segmentZKMetadata, 0));
   }
 
   /**
@@ -206,7 +184,7 @@ public class PinotResourceManagerTest {
   private void addOneSegment(String resourceName) {
     final SegmentMetadata segmentMetadata = new SimpleSegmentMetadata(resourceName);
     LOGGER.info("Trying to add IndexSegment : " + segmentMetadata.getName());
-    _pinotHelixResourceManager.addNewSegment(segmentMetadata, "downloadUrl");
+    _pinotHelixResourceManager.addSegment(segmentMetadata, "downloadUrl");
   }
 
   private void deleteOneSegment(String resource, String segment) {

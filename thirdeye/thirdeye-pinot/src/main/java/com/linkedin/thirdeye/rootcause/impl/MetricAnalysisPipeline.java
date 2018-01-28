@@ -1,8 +1,6 @@
 package com.linkedin.thirdeye.rootcause.impl;
 
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-import com.linkedin.thirdeye.api.TimeGranularity;
 import com.linkedin.thirdeye.dataframe.DataFrame;
 import com.linkedin.thirdeye.dataframe.DoubleSeries;
 import com.linkedin.thirdeye.dataframe.LongSeries;
@@ -37,10 +35,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The MetricAnalysisPipeline ranks metrics based on the degree of anomalous behavior during
- * the anomaly period. It scores anomalous behavior with user-configured strategies.
+ * the anomaly period.
  *
- * <br/><b>NOTE:</b> this is the successor to {@code MetricCorrelationRankingPipeline}, and can
- * be used as a drop-in replacement that handles MetricEntities with filter URNs
+ * <br/><b>NOTE:</b> this is the successor to {@code MetricCorrelationRankingPipeline}
  *
  * @see MetricCorrelationRankingPipeline
  */
@@ -56,8 +53,7 @@ public class MetricAnalysisPipeline extends Pipeline {
   private static final String PROP_STRATEGY = "strategy";
   private static final String PROP_STRATEGY_DEFAULT = STRATEGY_THRESHOLD;
 
-  private static final String PROP_GRANULARITY = "granularity";
-  private static final String PROP_GRANULARITY_DEFAULT = "15_MINUTES";
+  private static final String PRE_TOTAL = "total:";
 
   private static final String COL_TIME = DataFrameUtils.COL_TIME;
   private static final String COL_VALUE = DataFrameUtils.COL_VALUE;
@@ -68,7 +64,6 @@ public class MetricAnalysisPipeline extends Pipeline {
   private final MetricConfigManager metricDAO;
   private final DatasetConfigManager datasetDAO;
   private final ScoringStrategyFactory strategyFactory;
-  private final TimeGranularity granularity;
 
   /**
    * Constructor for dependency injection
@@ -76,18 +71,16 @@ public class MetricAnalysisPipeline extends Pipeline {
    * @param outputName pipeline output name
    * @param inputNames input pipeline names
    * @param strategyFactory scoring strategy for differences
-   * @param granularity time series target granularity
    * @param cache query cache
    * @param metricDAO metric config DAO
    * @param datasetDAO datset config DAO
    */
-  public MetricAnalysisPipeline(String outputName, Set<String> inputNames, ScoringStrategyFactory strategyFactory, TimeGranularity granularity, QueryCache cache, MetricConfigManager metricDAO, DatasetConfigManager datasetDAO) {
+  public MetricAnalysisPipeline(String outputName, Set<String> inputNames, ScoringStrategyFactory strategyFactory, QueryCache cache, MetricConfigManager metricDAO, DatasetConfigManager datasetDAO) {
     super(outputName, inputNames);
     this.cache = cache;
     this.metricDAO = metricDAO;
     this.datasetDAO = datasetDAO;
     this.strategyFactory = strategyFactory;
-    this.granularity = granularity;
   }
 
   /**
@@ -103,7 +96,6 @@ public class MetricAnalysisPipeline extends Pipeline {
     this.datasetDAO = DAORegistry.getInstance().getDatasetConfigDAO();
     this.cache = ThirdEyeCacheRegistry.getInstance().getQueryCache();
     this.strategyFactory = parseStrategyFactory(MapUtils.getString(properties, PROP_STRATEGY, PROP_STRATEGY_DEFAULT));
-    this.granularity = TimeGranularity.fromString(MapUtils.getString(properties, PROP_GRANULARITY, PROP_GRANULARITY_DEFAULT));
   }
 
   @Override
@@ -131,7 +123,7 @@ public class MetricAnalysisPipeline extends Pipeline {
 
     // generate requests
     List<TimeSeriesRequestContainer> requestList = new ArrayList<>();
-    requestList.addAll(makeRequests(metrics, trainingBaselineStart, testCurrentEnd, filters));
+    requestList.addAll(makeRequests(metrics, trainingBaselineStart, testCurrentEnd, filters, PRE_TOTAL));
 
     LOG.info("Requesting {} time series", requestList.size());
     List<ThirdEyeRequest> thirdeyeRequests = new ArrayList<>();
@@ -178,12 +170,14 @@ public class MetricAnalysisPipeline extends Pipeline {
     Set<MetricEntity> output = new HashSet<>();
     for(MetricEntity me : metrics) {
       try {
-        if(!responses.containsKey(me.getUrn())) {
+        String id = makeIdentifier(me.getUrn(), PRE_TOTAL);
+
+        if(!responses.containsKey(id)) {
           LOG.warn("Did not receive response for '{}'. Skipping.", me.getUrn());
           continue;
         }
 
-        DataFrame timeseries = responses.get(me.getUrn());
+        DataFrame timeseries = responses.get(id);
         if (timeseries.isEmpty()) {
           LOG.warn("No data for '{}'. Skipping.", me.getUrn());
           continue;
@@ -266,21 +260,22 @@ public class MetricAnalysisPipeline extends Pipeline {
     }
   }
 
-  private List<TimeSeriesRequestContainer> makeRequests(Collection<MetricEntity> metrics, long start, long end, Multimap<String, String> filters) {
+  private List<TimeSeriesRequestContainer> makeRequests(Collection<MetricEntity> metrics, long start, long end, Multimap<String, String> filters, String prefix) {
     List<TimeSeriesRequestContainer> requests = new ArrayList<>();
-    for(MetricEntity me : metrics) {
-      Multimap<String, String> jointFilters = ArrayListMultimap.create();
-      jointFilters.putAll(filters);
-      jointFilters.putAll(me.getFilters());
-
-      MetricSlice slice = MetricSlice.from(me.getId(), start, end, jointFilters, this.granularity);
+    for(MetricEntity e : metrics) {
+      String id = makeIdentifier(e.getUrn(), prefix);
+      MetricSlice slice = MetricSlice.from(e.getId(), start, end, filters);
       try {
-        requests.add(DataFrameUtils.makeTimeSeriesRequestAligned(slice, me.getUrn(), this.metricDAO, this.datasetDAO));
+        requests.add(DataFrameUtils.makeTimeSeriesRequestAligned(slice, id, this.metricDAO, this.datasetDAO));
       } catch (Exception ex) {
-        LOG.warn(String.format("Could not make request for '%s'. Skipping.", me.getUrn()), ex);
+        LOG.warn(String.format("Could not make request for '%s'. Skipping.", id), ex);
       }
     }
     return requests;
+  }
+
+  private static String makeIdentifier(String urn, String prefix) {
+    return prefix + urn;
   }
 
   private static ScoringStrategyFactory parseStrategyFactory(String strategy) {

@@ -23,11 +23,10 @@ import com.linkedin.pinot.common.metrics.ControllerMetrics;
 import com.linkedin.pinot.common.metrics.MetricsHelper;
 import com.linkedin.pinot.common.metrics.ValidationMetrics;
 import com.linkedin.pinot.common.segment.fetcher.SegmentFetcherFactory;
-import com.linkedin.pinot.common.utils.CommonConstants;
 import com.linkedin.pinot.common.utils.ServiceStatus;
 import com.linkedin.pinot.controller.api.ControllerAdminApiApplication;
 import com.linkedin.pinot.controller.api.access.AccessControlFactory;
-import com.linkedin.pinot.controller.api.events.MetadataEventNotifierFactory;
+import com.linkedin.pinot.controller.api.events.MetadataChangeNotifierFactory;
 import com.linkedin.pinot.controller.helix.SegmentStatusChecker;
 import com.linkedin.pinot.controller.helix.core.PinotHelixResourceManager;
 import com.linkedin.pinot.controller.helix.core.minion.PinotHelixTaskResourceManager;
@@ -58,7 +57,7 @@ public class ControllerStarter {
   private static final String METRICS_REGISTRY_NAME = "pinot.controller.metrics";
   private static final Long DATA_DIRECTORY_MISSING_VALUE = 1000000L;
   private static final Long DATA_DIRECTORY_EXCEPTION_VALUE = 1100000L;
-  private static final String METADATA_EVENT_NOTIFIER_PREFIX = "metadata.event.notifier";
+  private static final String METADATA_CHANGE_NOTIFIER_PREFIX = "metadata.change.notifier";
 
   private final ControllerConf config;
   private final ControllerAdminApiApplication adminApp;
@@ -116,7 +115,7 @@ public class ControllerStarter {
     // Start all components
     try {
       LOGGER.info("initializing segment fetchers for all protocols");
-      SegmentFetcherFactory.initSegmentFetcherFactory(config.subset(CommonConstants.Controller.PREFIX_OF_CONFIG_OF_SEGMENT_FETCHER_FACTORY));
+      SegmentFetcherFactory.initSegmentFetcherFactory(config);
 
       LOGGER.info("Starting Pinot Helix resource manager and connecting to Zookeeper");
       helixResourceManager.start();
@@ -155,8 +154,8 @@ public class ControllerStarter {
       final AccessControlFactory accessControlFactory =
           (AccessControlFactory) Class.forName(accessControlFactoryClass).newInstance();
 
-      final MetadataEventNotifierFactory metadataEventNotifierFactory = MetadataEventNotifierFactory.loadFactory(
-          config.subset(METADATA_EVENT_NOTIFIER_PREFIX));
+      final MetadataChangeNotifierFactory metadataChangeNotifierFactory = MetadataChangeNotifierFactory.loadFactory(
+          config.subset(METADATA_CHANGE_NOTIFIER_PREFIX));
 
       int jerseyPort = Integer.parseInt(config.getControllerPort());
 
@@ -176,7 +175,7 @@ public class ControllerStarter {
           bind(executorService).to(Executor.class);
           bind(controllerMetrics).to(ControllerMetrics.class);
           bind(accessControlFactory).to(AccessControlFactory.class);
-          bind(metadataEventNotifierFactory).to(MetadataEventNotifierFactory.class);
+          bind(metadataChangeNotifierFactory).to(MetadataChangeNotifierFactory.class);
         }
       });
 
@@ -244,7 +243,6 @@ public class ControllerStarter {
 
     ServiceStatus.setServiceStatusCallback(new ServiceStatus.ServiceStatusCallback() {
       private boolean _isStarted = false;
-      private String _statusDescription = "Helix ZK Not connected";
       @Override
       public ServiceStatus.Status getServiceStatus() {
         if(_isStarted) {
@@ -261,13 +259,8 @@ public class ControllerStarter {
           return ServiceStatus.Status.STARTING;
         } else {
           _isStarted = true;
-          _statusDescription = ServiceStatus.STATUS_DESCRIPTION_NONE;
           return ServiceStatus.Status.GOOD;
         }
-      }
-      @Override
-      public String getStatusDescription() {
-        return _statusDescription;
       }
     });
 

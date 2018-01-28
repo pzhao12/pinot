@@ -15,66 +15,88 @@
  */
 package com.linkedin.pinot.core.util;
 
-import com.google.common.base.Preconditions;
+import com.linkedin.pinot.common.Utils;
 import com.linkedin.pinot.core.segment.creator.impl.V1Constants;
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.zip.Adler32;
+import java.util.zip.CheckedInputStream;
 import java.util.zip.Checksum;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
-@SuppressWarnings("Duplicates")
+/**
+ * Dec 4, 2014
+ */
+
 public class CrcUtils {
+  private static final Logger LOGGER = LoggerFactory.getLogger(CrcUtils.class);
   private static final int BUFFER_SIZE = 65536;
 
-  private final List<File> _files;
+  private final List<File> filesToProcess;
 
   private CrcUtils(List<File> files) {
-    _files = files;
+    filesToProcess = files;
+  }
+
+  public static CrcUtils forFile(File file) {
+    final List<File> files = new ArrayList<File>();
+    files.add(file);
+    return new CrcUtils(files);
   }
 
   public static CrcUtils forAllFilesInFolder(File dir) {
-    List<File> normalFiles = new ArrayList<>();
-    getAllNormalFiles(dir, normalFiles);
-    Collections.sort(normalFiles);
-    return new CrcUtils(normalFiles);
-  }
+    final File[] allFiles = dir.listFiles(new FileFilter() {
 
-  /**
-   * Helper method to get all normal (non-directory) files under a directory recursively.
-   * <p>NOTE: do not include the segment creation meta file.
-   */
-  private static void getAllNormalFiles(File dir, List<File> normalFiles) {
-    File[] files = dir.listFiles();
-    Preconditions.checkNotNull(files);
-    for (File file : files) {
-      if (file.isFile()) {
-        if (!file.getName().equals(V1Constants.SEGMENT_CREATION_META)) {
-          normalFiles.add(file);
+      @Override
+      public boolean accept(File pathname) {
+        if (pathname.getName().equals(V1Constants.SEGMENT_CREATION_META)) {
+          return false;
         }
-      } else {
-        getAllNormalFiles(file, normalFiles);
+        return true;
       }
+    });
+
+    Arrays.sort(allFiles);
+
+    final List<File> files = new ArrayList<File>();
+    for (final File f : allFiles) {
+      files.add(f);
     }
+
+    return new CrcUtils(files);
   }
 
-  public long computeCrc() throws IOException {
-    byte[] buffer = new byte[BUFFER_SIZE];
-    Checksum checksum = new Adler32();
+  public long computeCrc() {
+    CheckedInputStream cis = null;
+    InputStream is = null;
+    final Checksum checksum = new Adler32();
+    final byte[] tempBuf = new byte[BUFFER_SIZE];
 
-    for (File file : _files) {
-      try (InputStream input = new FileInputStream(file)) {
-        int len;
-        while ((len = input.read(buffer)) > 0) {
-          checksum.update(buffer, 0, len);
+    for (final File file : filesToProcess) {
+      try {
+        is = new BufferedInputStream(new FileInputStream(file));
+        cis = new CheckedInputStream(is, checksum);
+        while (cis.read(tempBuf) >= 0) {
         }
+
+        cis.close();
+        is.close();
+
+      } catch (final Exception e) {
+        LOGGER.error("Caught exception while computing CRC", e);
+        Utils.rethrowException(e);
+        throw new AssertionError("Should not reach this");
       }
     }
 
@@ -82,18 +104,26 @@ public class CrcUtils {
   }
 
   public String computeMD5() throws NoSuchAlgorithmException, IOException {
-    byte[] buffer = new byte[BUFFER_SIZE];
-    MessageDigest digest = MessageDigest.getInstance("md5");
 
-    for (File file : _files) {
-      try (InputStream input = new FileInputStream(file)) {
-        int len;
-        while ((len = input.read(buffer)) > 0) {
+    final MessageDigest digest = MessageDigest.getInstance("md5");
+
+    for (final File file : filesToProcess) {
+      try {
+        final FileInputStream f = new FileInputStream(file);
+
+        final byte[] buffer = new byte[8192];
+        int len = 0;
+        while (-1 != (len = f.read(buffer))) {
           digest.update(buffer, 0, len);
         }
+
+        f.close();
+      } catch (final Exception e) {
+        LOGGER.error("Caught exception while computing MD5", e);
+        Utils.rethrowException(e);
+        throw new AssertionError("Should not reach this");
       }
     }
-
     return toHexaDecimal(digest.digest());
   }
 

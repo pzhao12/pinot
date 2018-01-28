@@ -35,7 +35,6 @@ public class AnomalyDetails {
   private String anomalyFeedback;
   private String anomalyFeedbackStatus;
   private String anomalyFeedbackComments;
-  private String anomalyResultSource;
   private String issueType;
 
   public Long getAnomalyId() {
@@ -263,13 +262,5 @@ public class AnomalyDetails {
 
   public void setIssueType(String issueType) {
     this.issueType = issueType;
-  }
-
-  public String getAnomalyResultSource() {
-    return anomalyResultSource;
-  }
-
-  public void setAnomalyResultSource(String anomalyResultSource) {
-    this.anomalyResultSource = anomalyResultSource;
   }
 }

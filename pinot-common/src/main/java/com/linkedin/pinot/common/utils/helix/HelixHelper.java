@@ -70,67 +70,67 @@ public class HelixHelper {
    */
   public static void updateIdealState(final HelixManager helixManager, final String resourceName,
       final Function<IdealState, IdealState> updater, RetryPolicy policy) {
-    try {
-      policy.attempt(new Callable<Boolean>() {
-        @Override
-        public Boolean call() {
-          HelixDataAccessor dataAccessor = helixManager.getHelixDataAccessor();
-          PropertyKey propertyKey = dataAccessor.keyBuilder().idealStates(resourceName);
+    boolean successful = policy.attempt(new Callable<Boolean>() {
+      @Override
+      public Boolean call() {
+        HelixDataAccessor dataAccessor = helixManager.getHelixDataAccessor();
+        PropertyKey propertyKey = dataAccessor.keyBuilder().idealStates(resourceName);
 
-          // Create an updated version of the ideal state
-          IdealState idealState = dataAccessor.getProperty(propertyKey);
-          PropertyKey key = dataAccessor.keyBuilder().idealStates(resourceName);
-          String path = key.getPath();
-          // Make a copy of the the idealState above to pass it to the updater, instead of querying again,
-          // as the state my change between the queries.
-          ZNRecordSerializer znRecordSerializer = new ZNRecordSerializer();
-          IdealState idealStateCopy = new IdealState(
-              (ZNRecord) znRecordSerializer.deserialize(znRecordSerializer.serialize(idealState.getRecord())));
-          IdealState updatedIdealState;
+        // Create an updated version of the ideal state
+        IdealState idealState = dataAccessor.getProperty(propertyKey);
+        PropertyKey key = dataAccessor.keyBuilder().idealStates(resourceName);
+        String path = key.getPath();
+        // Make a copy of the the idealState above to pass it to the updater, instead of querying again,
+        // as the state my change between the queries.
+        ZNRecordSerializer znRecordSerializer = new ZNRecordSerializer();
+        IdealState idealStateCopy = new IdealState(
+            (ZNRecord) znRecordSerializer.deserialize(znRecordSerializer.serialize(idealState.getRecord())));
+        IdealState updatedIdealState;
+
+        try {
+          updatedIdealState = updater.apply(idealStateCopy);
+        } catch (Exception e) {
+          LOGGER.error("Caught exception while updating ideal state", e);
+          return false;
+        }
+
+        // If there are changes to apply, apply them
+        if (!EqualityUtils.isEqual(idealState, updatedIdealState) && updatedIdealState != null) {
+          BaseDataAccessor<ZNRecord> baseDataAccessor = dataAccessor.getBaseDataAccessor();
+          boolean success;
+
+          // If the ideal state is large enough, enable compression
+          if (MAX_PARTITION_COUNT_IN_UNCOMPRESSED_IDEAL_STATE < updatedIdealState.getPartitionSet().size()) {
+            updatedIdealState.getRecord().setBooleanField("enableCompression", true);
+          }
 
           try {
-            updatedIdealState = updater.apply(idealStateCopy);
+            success =
+                baseDataAccessor.set(path, updatedIdealState.getRecord(), idealState.getRecord().getVersion(),
+                    AccessOption.PERSISTENT);
           } catch (Exception e) {
-            LOGGER.error("Caught exception while updating ideal state", e);
+            boolean idealStateIsCompressed = updatedIdealState.getRecord().getBooleanField("enableCompression", false);
+
+            LOGGER.warn("Caught exception while updating ideal state for resource {} (compressed={}), retrying.",
+                resourceName, idealStateIsCompressed, e);
             return false;
           }
 
-          // If there are changes to apply, apply them
-          if (!EqualityUtils.isEqual(idealState, updatedIdealState) && updatedIdealState != null) {
-            BaseDataAccessor<ZNRecord> baseDataAccessor = dataAccessor.getBaseDataAccessor();
-            boolean success;
-
-            // If the ideal state is large enough, enable compression
-            if (MAX_PARTITION_COUNT_IN_UNCOMPRESSED_IDEAL_STATE < updatedIdealState.getPartitionSet().size()) {
-              updatedIdealState.getRecord().setBooleanField("enableCompression", true);
-            }
-
-            try {
-              success =
-                  baseDataAccessor.set(path, updatedIdealState.getRecord(), idealState.getRecord().getVersion(),
-                      AccessOption.PERSISTENT);
-            } catch (Exception e) {
-              boolean idealStateIsCompressed = updatedIdealState.getRecord().getBooleanField("enableCompression", false);
-
-              LOGGER.warn("Caught exception while updating ideal state for resource {} (compressed={}), retrying.",
-                  resourceName, idealStateIsCompressed, e);
-              return false;
-            }
-
-            if (success) {
-              return true;
-            } else {
-              LOGGER.warn("Failed to update ideal state for resource {}, retrying.", resourceName);
-              return false;
-            }
-          } else {
-            LOGGER.warn("Idempotent or null ideal state update for resource {}, skipping update.", resourceName);
+          if (success) {
             return true;
+          } else {
+            LOGGER.warn("Failed to update ideal state for resource {}, retrying.", resourceName);
+            return false;
           }
+        } else {
+          LOGGER.warn("Idempotent or null ideal state update for resource {}, skipping update.", resourceName);
+          return true;
         }
-      });
-    } catch (Exception e) {
-      throw new RuntimeException("Caught exception while updating ideal state for resource: " + resourceName, e);
+      }
+    });
+
+    if (!successful) {
+      throw new RuntimeException("Failed to update ideal state for resource " + resourceName);
     }
   }
 

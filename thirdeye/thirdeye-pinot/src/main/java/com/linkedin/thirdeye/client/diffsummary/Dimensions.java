@@ -1,12 +1,9 @@
 package com.linkedin.thirdeye.client.diffsummary;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-import java.util.Objects;
-import java.util.Set;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 
@@ -15,14 +12,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class Dimensions {
   @JsonProperty("names")
-  private ImmutableList<String> names;
+  private List<String> names;
 
   Dimensions() {
-    names = ImmutableList.of();
+    names = new ArrayList<String>();
   }
 
   public Dimensions(List<String> names) {
-    this.names = ImmutableList.copyOf(names);
+    this.names = names;
   }
 
   public int size() {
@@ -33,66 +30,20 @@ public class Dimensions {
     return names.get(index);
   }
 
-  /**
-   * Returns all dimensions
-   * @return
-   */
-  public List<String> names() {
-    return names;
+  public List<String> allDimensions() {
+    return Collections.<String> unmodifiableList(names);
   }
 
-  /**
-   * Returns a sublist of dimension names to the specified depth. Depth starts from 0, which is the top level.
-   *
-   * @param depth the depth of the sublist.
-   * @return a sublist of dimension names to the specified depth.
-   */
-  public List<String> namesToDepth(int depth) {
-    return names.subList(0, depth);
+  public List<String> groupByStringsAtLevel(int level) {
+    return Collections.<String> unmodifiableList(names.subList(0, level));
   }
 
-  /**
-   * Checks if the current dimension is the parent to the given dimension. A dimension A is a parent to dimension B if
-   * and only if dimension A is a subset of dimension B.
-   *
-   * @param child the given child dimension.
-   *
-   * @return true if the current dimension is a parent (subset) to the given dimension.
-   */
-  public boolean isParentOf(Dimensions child) {
-    if (child == null) { // null dimension is always the top level and hence it is a parent to every dimension
-      return false;
-    }
-    if (names.size() >= child.size()) {
-      return false;
-    }
-    if (names.size() == 0) {
-      return true;
-    }
-    Set<String> childDim = new HashSet<>(child.names);
-    for (String name : names) {
-      if (!childDim.contains(name)) {
-        return false;
-      }
-    }
-    return true;
+  public List<String> groupByStringsAtTop() {
+    return Collections.<String> emptyList();
   }
 
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-    Dimensions that = (Dimensions) o;
-    return Objects.equals(names, that.names);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(names);
+  public List<String> groupByStringsAtLeaf() {
+    return allDimensions();
   }
 
   @Override

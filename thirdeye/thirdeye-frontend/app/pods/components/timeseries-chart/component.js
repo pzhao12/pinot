@@ -22,14 +22,6 @@ export default Ember.Component.extend({
     }
   },
 
-  /**
-   * default height property for the chart
-   * May be overridden
-   */
-  height: {
-    height: 400
-  },
-
   tooltip: {
     format: {
       title: (d) => moment(d).format('MM/DD hh:mm a'),
@@ -56,19 +48,6 @@ export default Ember.Component.extend({
     }
   },
 
-  /**
-   * Converts color strings into their rgba equivalent
-   */
-  colorMapping: {
-    blue: '#0091CA',
-    green: '#469A1F',
-    red: '#FF2C33',
-    purple: '#827BE9',
-    orange: '#E55800',
-    teal: '#0E95A0',
-    pink: '#FF1B90'
-  },
-
   subchart: { // on init only
     show: true
   },
@@ -77,26 +56,15 @@ export default Ember.Component.extend({
     enabled: true
   },
 
-  point: { // on init only
-    show: true
-  },
-
-  line: { // on init only
-    connectNull: true
-  },
-
   _makeDiffConfig() {
     const cache = this.get('_seriesCache') || {};
     const series = this.get('series') || {};
-    const colorMapping = this.get('colorMapping');
     const { axis, legend, tooltip } = this.getProperties('axis', 'legend', 'tooltip');
 
-    const seriesKeys = Object.keys(series).sort();
-
-    const addedKeys = seriesKeys.filter(sid => !cache[sid]);
-    const changedKeys = seriesKeys.filter(sid => cache[sid] && !_.isEqual(cache[sid], series[sid]));
+    const addedKeys = Object.keys(series).filter(sid => !cache[sid]);
+    const changedKeys = Object.keys(series).filter(sid => cache[sid] && !_.isEqual(cache[sid], series[sid]));
     const deletedKeys = Object.keys(cache).filter(sid => !series[sid]);
-    const regionKeys = seriesKeys.filter(sid => series[sid] && series[sid].type == 'region');
+    const regionKeys = Object.keys(series).filter(sid => series[sid] && series[sid].type == 'region');
 
     const regions = regionKeys.map(sid => {
       const t = series[sid].timestamps;
@@ -123,7 +91,7 @@ export default Ember.Component.extend({
     const columns = values.concat(timestamps);
 
     const colors = {};
-    loadKeys.filter(sid => series[sid].color).forEach(sid => colors[sid] = colorMapping[series[sid].color]);
+    loadKeys.filter(sid => series[sid].color).forEach(sid => colors[sid] = series[sid].color);
 
     const types = {};
     loadKeys.filter(sid => series[sid].type).forEach(sid => types[sid] = series[sid].type);
@@ -137,22 +105,21 @@ export default Ember.Component.extend({
   },
 
   _makeAxisRange(axis) {
-    const range = { min: {}, max: {} };
+    const range = { min: {}, max: {}};
     Object.keys(axis).filter(key => 'min' in axis[key]).forEach(key => range['min'][key] = axis[key]['min']);
     Object.keys(axis).filter(key => 'max' in axis[key]).forEach(key => range['max'][key] = axis[key]['max']);
     return range;
   },
 
   _updateCache() {
-    // debounce: do not trigger if chart object already destroyed
-    if (this.isDestroyed) { return; }
-
     const series = this.get('series') || {};
     this.set('_seriesCache', _.cloneDeep(series));
   },
 
   _updateChart() {
     const diffConfig = this._makeDiffConfig();
+    console.log('timeseries-chart: _updateChart(): diffConfig', diffConfig);
+
     const chart = this.get('_chart');
     chart.regions(diffConfig.regions);
     chart.axis.range(this._makeAxisRange(diffConfig.axis));
@@ -166,7 +133,7 @@ export default Ember.Component.extend({
     const cache = this.get('cache') || {};
 
     if (!_.isEqual(series, cache)) {
-      Ember.run.debounce(this, this._updateChart, 300);
+      Ember.run.debounce(this, this._updateChart, 250);
     }
   },
 
@@ -189,9 +156,8 @@ export default Ember.Component.extend({
     config.legend = diffConfig.legend;
     config.subchart = this.get('subchart');
     config.zoom = this.get('zoom');
-    config.size = this.get('height');
-    config.point = this.get('point');
-    config.line = this.get('line');
+
+    console.log('timeseries-chart: didInsertElement(): config', config);
 
     this.set('_chart', c3.generate(config));
     this._updateCache();

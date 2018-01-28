@@ -1,34 +1,50 @@
-language: java
-
-env:
-  - RUN_INTEGRATION_TESTS=true
-  - RUN_INTEGRATION_TESTS=false
-
-jdk:
-  - oraclejdk7
-  - openjdk7
-  - oraclejdk8
-
-matrix:
-  exclude:
-    - jdk: openjdk7
-      env: RUN_INTEGRATION_TESTS=false
-    - jdk: oraclejdk8
-      env: RUN_INTEGRATION_TESTS=false
-
-cache:
-  directories:
-    - $HOME/.m2
-
-dist: precise
-sudo: false
-
-install:
-  - ./.travis_install.sh
-
-script:
-  - ./.travis_test.sh
-
+before_cache:
+- rm -rf $HOME/CACHE; find $TRAVIS_BUILD_DIR -name .ekstazi | while read line; do
+  du -sh $line;         DIR=$(dirname $HOME/CACHE$line); mkdir -p $DIR; cp -r $line
+  $DIR; done
+- echo CACHESIZE $(du -sk $HOME/CACHE)
+before_install:
+- if [ "$TRAVIS_OS_NAME" == "osx" ];        then sed -i '' 's/<gib.enabled>true/<gib.enabled>false/'
+  $TRAVIS_BUILD_DIR/pom.xml;        else sed -i 's/<gib.enabled>true/<gib.enabled>false/'
+  $TRAVIS_BUILD_DIR/pom.xml;        fi
+- find $HOME/CACHE -name .ekstazi | while read line; do du -sh $line;         DIR=$(dirname
+  ${line#$HOME/CACHE}); if [[ -d ${DIR#.ekstazi/} ]]; then cp -r $line $DIR; fi; done
+before_script:
+- find $TRAVIS_BUILD_DIR -name .ekstazi | while read line; do rm -rf $line; done
+- find $HOME/CACHE -name .ekstazi | while read line; do du -sh $line;         DIR=$(dirname
+  ${line#$HOME/CACHE}); if [[ -d ${DIR#.ekstazi/} ]]; then cp -r $line $DIR; fi; done
+- if [ "$TRAVIS_OS_NAME" == "osx" ];    then sed -i '' 's/<gib.enabled>false/<gib.enabled>true/'
+  $TRAVIS_BUILD_DIR/pom.xml;    else sed -i 's/<gib.enabled>false/<gib.enabled>true/'
+  $TRAVIS_BUILD_DIR/pom.xml;    fi
 branches:
   only:
-    - master
+  - master
+cache:
+  directories:
+  - $HOME/.m2
+  - $HOME/CACHE
+dist: precise
+env:
+- RUN_INTEGRATION_TESTS=true
+- RUN_INTEGRATION_TESTS=false
+install:
+- ./.travis_install.sh
+jdk:
+- oraclejdk8
+language: java
+matrix:
+  exclude:
+  - env: RUN_INTEGRATION_TESTS=false
+    jdk: openjdk7
+  - env: RUN_INTEGRATION_TESTS=false
+    jdk: oraclejdk8
+script:
+- touch NOW
+- echo GIBSTUDYSTART $(date)
+- ./.travis_test.sh
+- echo GIBSTUDYEND $(date)
+- cd $TRAVIS_BUILD_DIR
+- if [ "$TRAVIS_OS_NAME" == "osx" ];        then echo TESTNUM $(find . -name TEST-*.xml
+  -newer NOW | wc -l);        else echo TESTNUM $(find -name TEST-*.xml -newer NOW
+  | wc -l);        fi
+sudo: false

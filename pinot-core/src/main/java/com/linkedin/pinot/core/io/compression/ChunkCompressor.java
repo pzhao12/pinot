@@ -25,7 +25,7 @@ import java.nio.ByteBuffer;
 public interface ChunkCompressor {
 
   /**
-   * This method compresses the given data. The output compressed ByteBuffer is returned ready for read.
+   * This method compresses the given data.
    *
    * @param inUncompressed Input data to be compressed.
    * @param outCompressed Output compressed data.

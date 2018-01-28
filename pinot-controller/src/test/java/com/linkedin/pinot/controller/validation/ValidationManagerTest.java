@@ -20,6 +20,7 @@ import com.linkedin.pinot.common.config.TableConfig;
 import com.linkedin.pinot.common.config.TableNameBuilder;
 import com.linkedin.pinot.common.data.MetricFieldSpec;
 import com.linkedin.pinot.common.data.Schema;
+import com.linkedin.pinot.common.metadata.ZKMetadataProvider;
 import com.linkedin.pinot.common.metadata.segment.OfflineSegmentZKMetadata;
 import com.linkedin.pinot.common.metrics.ValidationMetrics;
 import com.linkedin.pinot.common.segment.SegmentMetadata;
@@ -39,6 +40,7 @@ import com.linkedin.pinot.controller.helix.core.PinotTableIdealStateBuilder;
 import com.linkedin.pinot.controller.helix.core.realtime.PinotLLCRealtimeSegmentManager;
 import com.linkedin.pinot.controller.helix.core.util.HelixSetupUtils;
 import com.linkedin.pinot.core.segment.creator.impl.V1Constants;
+import com.linkedin.pinot.core.segment.index.SegmentMetadataImpl;
 import com.linkedin.pinot.startree.hll.HllConstants;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -112,7 +114,8 @@ public class ValidationManagerTest {
 
   private void makeMockPinotLLCRealtimeSegmentManager(ZNRecord kafkaPartitionAssignment) {
     _segmentManager = mock(PinotLLCRealtimeSegmentManager.class);
-    Mockito.doNothing().when(_segmentManager).updateKafkaPartitionsIfNecessary(Mockito.any(TableConfig.class));
+    Mockito.doNothing().when(_segmentManager).updateKafkaPartitionsIfNecessary(Mockito.any(String.class),
+        Mockito.any(TableConfig.class));
     when(_segmentManager.getKafkaPartitionAssignment(anyString())).thenReturn(kafkaPartitionAssignment);
   }
 
@@ -157,27 +160,39 @@ public class ValidationManagerTest {
   @Test
   public void testPushTimePersistence() throws Exception {
     DummyMetadata metadata = new DummyMetadata(TEST_TABLE_NAME);
-    String rawTableName = metadata.getTableName();
-    String segmentName = metadata.getName();
 
-    _pinotHelixResourceManager.addNewSegment(metadata, "http://dummy/");
-    OfflineSegmentZKMetadata offlineSegmentZKMetadata =
-        _pinotHelixResourceManager.getOfflineSegmentZKMetadata(rawTableName, segmentName);
-    long pushTime = offlineSegmentZKMetadata.getPushTime();
+    _pinotHelixResourceManager.addSegment(metadata, "http://dummy/");
+
+    Thread.sleep(1000);
+
+    OfflineSegmentZKMetadata offlineSegmentZKMetadata = ZKMetadataProvider.getOfflineSegmentZKMetadata(
+        _pinotHelixResourceManager.getPropertyStore(), metadata.getTableName(), metadata.getName());
+
+    SegmentMetadata fetchedMetadata = new SegmentMetadataImpl(offlineSegmentZKMetadata);
+    long pushTime = fetchedMetadata.getPushTime();
+
     // Check that the segment has been pushed in the last 30 seconds
-    Assert.assertTrue(System.currentTimeMillis() - pushTime < 30_000);
+    Assert.assertTrue(System.currentTimeMillis() - pushTime < 30000);
+
     // Check that there is no refresh time
-    Assert.assertEquals(offlineSegmentZKMetadata.getRefreshTime(), Long.MIN_VALUE);
+    Assert.assertEquals(fetchedMetadata.getRefreshTime(), Long.MIN_VALUE);
 
     // Refresh the segment
-    metadata.setCrc(Long.toString(System.currentTimeMillis()));
-    _pinotHelixResourceManager.refreshSegment(metadata, offlineSegmentZKMetadata, "http://dummy/");
+    metadata.setCrc("anotherfakecrc");
+    _pinotHelixResourceManager.addSegment(metadata, "http://dummy/");
 
-    offlineSegmentZKMetadata = _pinotHelixResourceManager.getOfflineSegmentZKMetadata(rawTableName, segmentName);
+    Thread.sleep(1000);
+
+    offlineSegmentZKMetadata = ZKMetadataProvider.getOfflineSegmentZKMetadata(
+        _pinotHelixResourceManager.getPropertyStore(), metadata.getTableName(), metadata.getName());
+    fetchedMetadata = new SegmentMetadataImpl(offlineSegmentZKMetadata);
+
     // Check that the segment still has the same push time
-    Assert.assertEquals(offlineSegmentZKMetadata.getPushTime(), pushTime);
+    Assert.assertEquals(fetchedMetadata.getPushTime(), pushTime);
+
     // Check that the refresh time is in the last 30 seconds
-    Assert.assertTrue(System.currentTimeMillis() - offlineSegmentZKMetadata.getRefreshTime() < 30_000L);
+    Assert.assertTrue(System.currentTimeMillis() - fetchedMetadata.getRefreshTime() < 30000);
+
   }
 
   @Test
@@ -658,6 +673,12 @@ public class ValidationManagerTest {
     @Nullable
     @Override
     public String getDerivedColumn(String column, MetricFieldSpec.DerivedMetricType derivedMetricType) {
+      return null;
+    }
+
+    @Nullable
+    @Override
+    public List<String> getOptimizations() {
       return null;
     }
   }

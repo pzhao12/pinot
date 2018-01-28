@@ -13,11 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.linkedin.pinot.common.exception;
 
-public class PermanentDownloadException extends RuntimeException {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-  public PermanentDownloadException(String message) {
-    super(message);
+
+public class PermanentDownloadException extends RuntimeException {
+  public static Logger LOGGER = LoggerFactory.getLogger(PermanentDownloadException.class);
+
+  public  PermanentDownloadException(String errorMsg) {
+    super(errorMsg);
   }
 }

@@ -213,9 +213,16 @@ public class KafkaAvroMessageDecoder implements KafkaMessageDecoder<byte[]> {
 
   private org.apache.avro.Schema fetchSchema(String reference) throws Exception {
     SchemaFetcher schemaFetcher = new SchemaFetcher(makeRandomUrl(reference));
-    RetryPolicies.exponentialBackoffRetryPolicy(MAXIMUM_SCHEMA_FETCH_RETRY_COUNT,
+
+    boolean successful = RetryPolicies.exponentialBackoffRetryPolicy(MAXIMUM_SCHEMA_FETCH_RETRY_COUNT,
         MINIMUM_SCHEMA_FETCH_RETRY_TIME_MILLIS, SCHEMA_FETCH_RETRY_EXPONENTIAL_BACKOFF_FACTOR).attempt(schemaFetcher);
-    return schemaFetcher.getSchema();
+
+    if (successful) {
+      return schemaFetcher.getSchema();
+    } else {
+      throw new RuntimeException(
+          "Failed to fetch schema from " + reference + " after " + MAXIMUM_SCHEMA_FETCH_RETRY_COUNT + "retries");
+    }
   }
 
   /**

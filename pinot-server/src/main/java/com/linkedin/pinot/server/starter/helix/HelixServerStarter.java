@@ -26,6 +26,7 @@ import com.linkedin.pinot.common.utils.ControllerTenantNameBuilder;
 import com.linkedin.pinot.common.utils.MmapUtils;
 import com.linkedin.pinot.common.utils.NetUtil;
 import com.linkedin.pinot.common.utils.ServiceStatus;
+import com.linkedin.pinot.common.utils.ZkUtils;
 import com.linkedin.pinot.server.conf.ServerConf;
 import com.linkedin.pinot.server.realtime.ControllerLeaderLocator;
 import com.linkedin.pinot.server.starter.ServerInstance;
@@ -106,7 +107,7 @@ public class HelixServerStarter {
     _helixManager.connect();
     _helixAdmin = _helixManager.getClusterManagmentTool();
     addInstanceTagIfNeeded(helixClusterName, _instanceId);
-    ZkHelixPropertyStore<ZNRecord> propertyStore = _helixManager.getHelixPropertyStore();
+    ZkHelixPropertyStore<ZNRecord> propertyStore = ZkUtils.getZkPropertyStore(_helixManager, helixClusterName);
 
     LOGGER.info("Starting server instance");
     Utils.logVersions();

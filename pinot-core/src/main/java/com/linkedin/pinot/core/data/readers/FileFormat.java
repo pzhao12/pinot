@@ -20,6 +20,5 @@ public enum FileFormat {
   GZIPPED_AVRO,
   CSV,
   JSON,
-  PINOT,
-  THRIFT
+  PINOT;
 }

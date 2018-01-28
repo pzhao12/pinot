@@ -49,13 +49,13 @@ import org.apache.helix.model.IdealState;
 import org.joda.time.Duration;
 import org.joda.time.Interval;
 import org.json.JSONException;
-import org.mockito.ArgumentMatchers;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import static org.mockito.Matchers.anyInt;
+import static org.mockito.Matchers.anyList;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -106,7 +106,7 @@ public class RetentionManagerTest {
     verify(deletionManager, times(1)).removeAgedDeletedSegments(anyInt());
 
     // Verify that the deleteSegments method is actually called.
-    verify(pinotHelixResourceManager, times(1)).deleteSegments(anyString(), ArgumentMatchers.<String>anyList());
+    verify(pinotHelixResourceManager, times(1)).deleteSegments(anyString(), anyList());
 
     retentionManager.stop();
   }
@@ -202,7 +202,7 @@ public class RetentionManagerTest {
         }
         return null;
       }
-    }).when(resourceManager).deleteSegments(anyString(), ArgumentMatchers.<String>anyList());
+    }).when(resourceManager).deleteSegments(anyString(), anyList());
   }
 
   // This test makes sure that we clean up the segments marked OFFLINE in realtime for more than 7 days
@@ -229,7 +229,7 @@ public class RetentionManagerTest {
     verify(deletionManager, times(1)).removeAgedDeletedSegments(anyInt());
 
     // Verify that the deleteSegments method is actually called.
-    verify(pinotHelixResourceManager, times(1)).deleteSegments(anyString(), ArgumentMatchers.<String>anyList());
+    verify(pinotHelixResourceManager, times(1)).deleteSegments(anyString(), anyList());
 
     retentionManager.stop();
   }
@@ -482,6 +482,12 @@ public class RetentionManagerTest {
       @Nullable
       @Override
       public String getDerivedColumn(String column, MetricFieldSpec.DerivedMetricType derivedMetricType) {
+        return null;
+      }
+
+      @Nullable
+      @Override
+      public List<String> getOptimizations() {
         return null;
       }
     };

@@ -23,36 +23,45 @@ public class RetryPolicies {
   }
 
   /**
-   * Creates an {@link ExponentialBackoffRetryPolicy}.
+   * Returns an exponential backoff retry policy. The time between attempts for the <em>i</em><sup>th</sup> retry is
+   * between retryScaleFactor<sup>i - 1</sup> * minimumDelayMillis and retryScaleFactor<sup>i</sup> * minimumDelayMillis.
    *
-   * @param maxNumAttempts The maximum number of attempts to try
-   * @param initialDelayMs The initial delay in milliseconds between attempts
-   * @param delayScaleFactor The factor used for exponential scaling of delay
+   * @param maximumAttemptCount The maximum number of attempts to try
+   * @param minimumDelayMillis The minimum of milliseconds between tries
+   * @param retryScaleFactor The factor used for exponential scaling.
    * @return The retry policy
    */
-  public static ExponentialBackoffRetryPolicy exponentialBackoffRetryPolicy(int maxNumAttempts, long initialDelayMs,
-      double delayScaleFactor) {
-    return new ExponentialBackoffRetryPolicy(maxNumAttempts, initialDelayMs, delayScaleFactor);
+  public static ExponentialBackoffRetryPolicy exponentialBackoffRetryPolicy(
+      int maximumAttemptCount,
+      long minimumDelayMillis,
+      float retryScaleFactor
+  ) {
+    return new ExponentialBackoffRetryPolicy(maximumAttemptCount, minimumDelayMillis, retryScaleFactor);
   }
 
   /**
-   * Creates a {@link FixedDelayRetryPolicy}.
+   * Returns a fixed delay retry policy, where the time between attempts is the same between each attempt.
    *
-   * @param maxNumAttempts The maximum number of attempts to try
-   * @param delayMs The delay in milliseconds between attempts
+   * @param maximumAttemptCount The maximum number of attempts to try
+   * @param delayMillis The time to wait between tries, in milliseconds
    * @return The retry policy
    */
-  public static FixedDelayRetryPolicy fixedDelayRetryPolicy(int maxNumAttempts, long delayMs) {
-    return new FixedDelayRetryPolicy(maxNumAttempts, delayMs);
+  public static FixedDelayRetryPolicy fixedDelayRetryPolicy(
+      int maximumAttemptCount,
+      long delayMillis
+  ) {
+    return new FixedDelayRetryPolicy(maximumAttemptCount, delayMillis);
   }
 
   /**
-   * Creates a {@link NoDelayRetryPolicy}.
+   * Returns a no delay retry policy, where operations are retried without waiting.
    *
-   * @param maxNumAttempts The maximum number of attempts to try
+   * @param maximumAttemptCount The maximum number of attempts to try
    * @return The retry policy
    */
-  public static NoDelayRetryPolicy noDelayRetryPolicy(int maxNumAttempts) {
-    return new NoDelayRetryPolicy(maxNumAttempts);
+  public static NoDelayRetryPolicy noDelayRetryPolicy(
+      int maximumAttemptCount
+  ) {
+    return new NoDelayRetryPolicy(maximumAttemptCount);
   }
 }

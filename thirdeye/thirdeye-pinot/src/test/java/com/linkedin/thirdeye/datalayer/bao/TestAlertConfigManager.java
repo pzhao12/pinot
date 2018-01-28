@@ -36,12 +36,6 @@ public class TestAlertConfigManager{
     Assert.assertTrue(alertConfigid > 0);
   }
 
-  @Test
-  public void testFindNameEquals() {
-    AlertConfigDTO sample = alertConfigDAO.findAll().get(0);
-    Assert.assertNotNull(alertConfigDAO.findWhereNameEquals(sample.getName()));
-  }
-
   @Test (dependsOnMethods = {"testDeleteAlertConfig"})
   public void testCreateAlertConfigWithAnomalyFeedConfig() {
     AlertConfigDTO dto = new AlertConfigDTO();

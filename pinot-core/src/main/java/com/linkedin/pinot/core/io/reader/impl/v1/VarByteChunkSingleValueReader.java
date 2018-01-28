@@ -15,6 +15,7 @@
  */
 package com.linkedin.pinot.core.io.reader.impl.v1;
 
+import com.linkedin.pinot.core.io.compression.ChunkDecompressor;
 import com.linkedin.pinot.core.io.reader.impl.ChunkReaderContext;
 import com.linkedin.pinot.core.io.writer.impl.v1.VarByteChunkSingleValueWriter;
 import com.linkedin.pinot.core.segment.memory.PinotDataBuffer;
@@ -43,11 +44,12 @@ public class VarByteChunkSingleValueReader extends BaseChunkSingleValueReader {
    * Constructor for the class.
    *
    * @param pinotDataBuffer Data buffer to read from
+   * @param uncompressor Chunk uncompressor
    * @throws IOException
    */
-  public VarByteChunkSingleValueReader(PinotDataBuffer pinotDataBuffer)
+  public VarByteChunkSingleValueReader(PinotDataBuffer pinotDataBuffer, ChunkDecompressor uncompressor)
       throws IOException {
-    super(pinotDataBuffer);
+    super(pinotDataBuffer, uncompressor);
 
     int chunkHeaderSize = _numDocsPerChunk * INT_SIZE;
     _maxChunkSize = chunkHeaderSize + (_lengthOfLongestEntry * _numDocsPerChunk);

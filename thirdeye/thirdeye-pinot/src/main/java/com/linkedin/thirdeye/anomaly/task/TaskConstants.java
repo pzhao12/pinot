@@ -19,7 +19,6 @@ public class TaskConstants {
     WAITING,
     RUNNING,
     COMPLETED,
-    FAILED,
-    TIMEOUT
+    FAILED
   }
 }

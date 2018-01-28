@@ -6,26 +6,38 @@ import com.linkedin.thirdeye.anomaly.ThirdEyeAnomalyConfiguration;
 import com.linkedin.thirdeye.anomaly.alert.util.AlertFilterHelper;
 import com.linkedin.thirdeye.anomaly.alert.util.AnomalyReportGenerator;
 import com.linkedin.thirdeye.anomaly.alert.util.EmailHelper;
-import com.linkedin.thirdeye.common.ThirdEyeConfiguration;
 import com.linkedin.thirdeye.datalayer.bao.AlertConfigManager;
 import com.linkedin.thirdeye.datalayer.bao.ApplicationManager;
 import com.linkedin.thirdeye.datalayer.dto.AlertConfigDTO;
 import com.linkedin.thirdeye.datalayer.dto.ApplicationDTO;
 import com.linkedin.thirdeye.datalayer.dto.MergedAnomalyResultDTO;
-import com.linkedin.thirdeye.datasource.DAORegistry;
 import com.linkedin.thirdeye.detector.email.filter.AlertFilterFactory;
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.mail.EmailException;
-import org.apache.commons.mail.HtmlEmail;
-import org.quartz.CronExpression;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import javax.validation.constraints.NotNull;
-import javax.ws.rs.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+
+import java.util.Map;
+import java.util.Set;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import java.util.*;
+
+import com.linkedin.thirdeye.common.ThirdEyeConfiguration;
+import com.linkedin.thirdeye.datasource.DAORegistry;
+import org.apache.commons.mail.EmailException;
+import org.apache.commons.mail.HtmlEmail;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 @Path("thirdeye/email")
@@ -36,47 +48,21 @@ public class EmailResource {
   private final AlertConfigManager alertDAO;
   private final ApplicationManager appDAO;
   private static final DAORegistry DAO_REGISTRY = DAORegistry.getInstance();
+  private ThirdEyeConfiguration thirdeyeConfiguration = null;
   private AlertFilterFactory alertFilterFactory;
-  private String failureToAddress;
-  private String failureFromAddress;
-  private String phantonJsPath;
-  private String rootDir;
-  private String dashboardHost;
-  private SmtpConfiguration smtpConfiguration;
 
-  public EmailResource(ThirdEyeConfiguration thirdEyeConfig) {
-    this(thirdEyeConfig.getSmtpConfiguration(), new AlertFilterFactory(thirdEyeConfig.getAlertFilterConfigPath()),
-        thirdEyeConfig.getFailureFromAddress(), thirdEyeConfig.getFailureToAddress(), thirdEyeConfig.getDashboardHost(),
-        thirdEyeConfig.getPhantomJsPath(), thirdEyeConfig.getRootDir());
-  }
-
-  public EmailResource(SmtpConfiguration smtpConfiguration, AlertFilterFactory alertFilterFactory,
-      String failureFromAddress, String failureToAddress,
-      String dashboardHost, String phantonJsPath, String rootDir) {
-    this.smtpConfiguration = smtpConfiguration;
+  public EmailResource(ThirdEyeConfiguration thirdEyeConfiguration) {
     this.alertDAO = DAO_REGISTRY.getAlertConfigDAO();
     this.appDAO = DAO_REGISTRY.getApplicationDAO();
-    this.alertFilterFactory = alertFilterFactory;
-    this.failureFromAddress = failureFromAddress;
-    this.failureToAddress = failureToAddress;
-    this.dashboardHost = dashboardHost;
-    this.phantonJsPath = phantonJsPath;
-    this.rootDir = rootDir;
+    this.thirdeyeConfiguration = thirdEyeConfiguration;
+    this.alertFilterFactory = new AlertFilterFactory(this.thirdeyeConfiguration.getAlertFilterConfigPath());
   }
 
   @POST
   @Path("alert")
   public Response createAlertConfig(AlertConfigDTO alertConfigDTO) {
     if (Strings.isNullOrEmpty(alertConfigDTO.getFromAddress())) {
-      alertConfigDTO.setFromAddress(failureToAddress);
-    }
-    if (Strings.isNullOrEmpty(alertConfigDTO.getRecipients())) {
-      LOG.error("Unable to proceed user request with empty recipients: {}", alertConfigDTO);
-      return Response.status(Response.Status.BAD_REQUEST).entity("Empty field on recipients").build();
-    }
-    if (Strings.isNullOrEmpty(alertConfigDTO.getCronExpression())) {
-      LOG.error("Unable to proceed user request with empty cron: {}", alertConfigDTO);
-      return Response.status(Response.Status.BAD_REQUEST).entity("Empty field on cron").build();
+      alertConfigDTO.setFromAddress(thirdeyeConfiguration.getFailureToAddress());
     }
     Long id = alertDAO.save(alertConfigDTO);
     return Response.ok(id).build();
@@ -93,74 +79,6 @@ public class EmailResource {
   public Response deleteByAlertId(@PathParam("alertId") Long alertId) {
     alertDAO.deleteById(alertId);
     return Response.ok().build();
-  }
-
-  /**
-   * update alert config's cron and activation by id
-   * @param id alert config id
-   * @param cron cron expression for alert
-   * @param isActive activate or not
-   * @return Response
-   * @throws Exception
-   */
-  @PUT
-  @Path("/alert/{id}")
-  public Response updateAlertConfig(@NotNull @PathParam("id") Long id,
-      @QueryParam("cron") String cron, @QueryParam("isActive") Boolean isActive) throws Exception {
-
-    AlertConfigDTO alert = alertDAO.findById(id);
-    if (alert == null) {
-      throw new IllegalStateException("Alert Config with id " + id + " does not exist");
-    }
-
-    if (isActive != null) {
-      alert.setActive(isActive);
-    }
-
-    if (StringUtils.isNotEmpty(cron)) {
-      // validate cron
-      if (!CronExpression.isValidExpression(cron)) {
-        throw new IllegalArgumentException("Invalid cron expression for cron : " + cron);
-      }
-      alert.setCronExpression(cron);
-    }
-
-    alertDAO.update(alert);
-    return Response.ok(id).build();
-  }
-
-  /**
-   * update alert config's holiday cron and activation by id
-   * if this cron is not null then holiday mode is activate
-   * @param id id of the config
-   * @param cron holiday cron expression
-   * @return Response
-   * @throws Exception
-   */
-  @PUT
-  @Path("/alert/{id}/holiday-mode")
-  public Response updateAlertConfigHolidayCron(@NotNull @PathParam("id") Long id,
-      @QueryParam("cron") String cron) throws Exception {
-
-    AlertConfigDTO alert = alertDAO.findById(id);
-    if (alert == null) {
-      throw new IllegalStateException("Alert Config with id " + id + " does not exist");
-    }
-
-    if (StringUtils.isNotEmpty(cron)) {
-      // validate cron
-      if (!CronExpression.isValidExpression(cron)) {
-        throw new IllegalArgumentException("Invalid cron expression for cron : " + cron);
-      }
-      // as long as there is an valid holiday cron expression within the class
-      // the holiday model is activate
-      alert.setHolidayCronExpression(cron);
-    } else {
-      alert.setHolidayCronExpression(null);  // equivalent to deactivate holiday
-    }
-
-    alertDAO.update(alert);
-    return Response.ok(id).build();
   }
 
   @GET
@@ -200,8 +118,8 @@ public class EmailResource {
    */
   private SmtpConfiguration getSmtpConfiguration(String smtpHost, Integer smtpPort) {
     SmtpConfiguration smtpConfiguration = new SmtpConfiguration();
-    if (this.smtpConfiguration != null) {
-      smtpConfiguration = this.smtpConfiguration;
+    if (thirdeyeConfiguration.getSmtpConfiguration() != null) {
+      smtpConfiguration = thirdeyeConfiguration.getSmtpConfiguration();
     } else {
       if (Strings.isNullOrEmpty(smtpHost)) {
         return null;
@@ -230,17 +148,13 @@ public class EmailResource {
     ThirdEyeAnomalyConfiguration configuration = new ThirdEyeAnomalyConfiguration();
     configuration.setSmtpConfiguration(getSmtpConfiguration(smtpHost, smtpPort));
     configuration.setDashboardHost(teHost);
-    configuration.setPhantomJsPath(phantonJsPath);
-    configuration.setRootDir(rootDir);
-
-    AlertConfigDTO dummyAlertConfig = new AlertConfigDTO();
-    dummyAlertConfig.setName(alertName);
-    dummyAlertConfig.setFromAddress(fromAddr);
+    configuration.setPhantomJsPath(thirdeyeConfiguration.getPhantomJsPath());
+    configuration.setRootDir(thirdeyeConfiguration.getRootDir());
 
     String emailSub = Strings.isNullOrEmpty(subject) ? "Thirdeye Anomaly Report" : subject;
     anomalyReportGenerator
         .buildReport(startTime, endTime, groupId, groupName, anomalies, emailSub, configuration,
-            includeSentAnomaliesOnly, toAddr, alertName, dummyAlertConfig, includeSummary);
+            includeSentAnomaliesOnly, toAddr, fromAddr, alertName, includeSummary);
     return Response.ok("Request to generate report-email accepted ").build();
   }
 
@@ -286,7 +200,7 @@ public class EmailResource {
     }
 
     if(Strings.isNullOrEmpty(teHost)) {
-      teHost = dashboardHost;
+      teHost = thirdeyeConfiguration.getDashboardHost();
     }
     AnomalyReportGenerator anomalyReportGenerator = AnomalyReportGenerator.getInstance();
     List<MergedAnomalyResultDTO> anomalies = anomalyReportGenerator
@@ -370,11 +284,11 @@ public class EmailResource {
     }
 
     if(Strings.isNullOrEmpty(teHost)) {
-      teHost = dashboardHost;
+      teHost = thirdeyeConfiguration.getDashboardHost();
     }
 
     if (Strings.isNullOrEmpty(fromAddr)) {
-      fromAddr = failureFromAddress;
+      fromAddr = thirdeyeConfiguration.getFailureFromAddress();
     }
 
     AnomalyReportGenerator anomalyReportGenerator = AnomalyReportGenerator.getInstance();
@@ -457,11 +371,11 @@ public class EmailResource {
     }
 
     if (Strings.isNullOrEmpty(fromAddr)) {
-      fromAddr = failureFromAddress;
+      fromAddr = thirdeyeConfiguration.getFailureFromAddress();
     }
 
     if (Strings.isNullOrEmpty(toAddr)) {
-      toAddr = failureToAddress;
+      toAddr = thirdeyeConfiguration.getFailureToAddress();
     }
 
     HtmlEmail email = new HtmlEmail();

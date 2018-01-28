@@ -2,7 +2,6 @@ import Base from 'ember-simple-auth/authenticators/base';
 import fetch from 'fetch';
 import Ember from 'ember';
 import { checkStatus } from 'thirdeye-frontend/helpers/utils';
-import RSVP from 'rsvp';
 
 export default Base.extend({
   session: Ember.inject.service(),
@@ -24,13 +23,12 @@ export default Base.extend({
       let expiration = 60 * 60 * 24 * 7;
 
       this.set('session.store.cookieExpirationTime', expiration);
-
       return res;
     });
   },
 
-  restore(data) {
-    return RSVP.resolve(data);
+  restore() {
+    return Promise.resolve();
   },
 
   /**

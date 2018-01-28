@@ -1,49 +1,23 @@
 <div class="row">
-  {{#if (eq selectedView "card")}}
-    <div class="col-xs-8">
-      sort
-      | <a {{action "toggleSort" "metric"}}>metric</a>
-      | <a {{action "toggleSort" "dataset"}}>dataset</a>
-      | <a {{action "toggleSort" "change"}}>change</a>
-      | <a {{action "toggleSort" "score"}}>score</a>
-    </div>
-  {{/if}}
-  <div class="col-xs-4 pull-right">
-    <ul class="rootcause-metric__display-view">
-      <li class="rootcause-metric__display-view--{{if (eq selectedView "card") "active"}}" {{action "selectView" 'card'}}>
-        Card
-      </li>
-      <li>|</li>
-      <li class="rootcause-metric__display-view--{{if (eq selectedView "table") "active"}}" {{action "selectView" 'table'}}>
-        Table
-      </li>
-    </ul>
+  <div class="col-xs-12">
+    <button {{action "toggleSort" "metric"}}>metric</button> |
+    <button {{action "toggleSort" "dataset"}}>dataset</button> |
+    <button {{action "toggleSort" "change"}}>change</button>
   </div>
 </div>
 
-{{#if (eq selectedView "card")}}
-  {{#each urns as |urn|}}
-    <div class="col-lg-2 col-md-3 col-xs-6 rootcause-metric__card
-      {{if (set-has selectedUrns urn) "rootcause-metric__card--selected"}}"
-      {{action "toggleSelection" urn}}>
-      <div class="rootcause-metric__title">
-        <span class="rootcause-metric__name">{{get-safe metrics urn}}</span>
-        <span class="rootcause-metric__dataset">{{get-safe datasets urn}}</span>
+  <div class="rootcause-metric__wrapper">
+    {{#each urns as |urn|}}
+      <div class="col-lg-2 col-md-3 col-xs-6 rootcause-metric__card 
+        {{if (set-has selectedUrns urn) "rootcause-metric__card--selected"}}" 
+        {{action "toggleSelection" urn}}>
+        <div class="rootcause-metric__title">
+          <span class="rootcause-metric__name">{{get metrics urn}}</span>
+          <span class="rootcause-metric__dataset">{{get datasets urn}}</span>
+        </div>
+        <span class="rootcause-metric__change rootcause-metric__change--{{color-delta (get changes urn)}}">{{get changesFormatted urn}}</span>
       </div>
-      <span class="rootcause-metric__change rootcause-metric__change--{{get-safe directions urn}}">
-        {{get-safe changesFormatted urn}}
-      </span>
-    </div>
-  {{else}}
-    No Metrics.
-  {{/each}}
-{{else}}
-  {{metrics-table
-    urns=urns
-    links=links
-    selectedUrns=selectedUrns
-    entities=entities
-    changesOffset=changesOffset
-    changesOffsetFormatted=changesOffsetFormatted
-    toggleSelection=(action "toggleSelection")}}
-{{/if}}
+    {{else}}
+      No Metrics.
+    {{/each}}
+  </div>

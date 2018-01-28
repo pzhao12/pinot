@@ -6,11 +6,6 @@ import com.google.common.collect.HashMultimap;
 import com.linkedin.pinot.common.data.TimeGranularitySpec.TimeFormat;
 import com.linkedin.thirdeye.api.DimensionMap;
 
-import com.linkedin.thirdeye.dashboard.ThirdEyeDashboardConfiguration;
-import com.linkedin.thirdeye.datalayer.util.DaoProviderUtil;
-import io.dropwizard.configuration.ConfigurationFactory;
-import io.dropwizard.jackson.Jackson;
-import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -22,7 +17,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-import javax.validation.Validation;
 import org.apache.commons.lang.StringUtils;
 import org.joda.time.Period;
 import org.slf4j.Logger;
@@ -371,6 +365,7 @@ public abstract class ThirdEyeUtils {
     return metricConfig;
   }
 
+
   /**
    * Get rounded double value, according to the value of the double.
    * Max rounding will be upto 4 decimals
@@ -382,16 +377,6 @@ public abstract class ThirdEyeUtils {
    * @return
    */
   public static String getRoundedValue(double value) {
-    if (Double.isNaN(value) || Double.isInfinite(value)) {
-      if (Double.isNaN(value)) {
-        return Double.toString(Double.NaN);
-      }
-      if (value > 0) {
-        return Double.toString(Double.POSITIVE_INFINITY);
-      } else {
-        return Double.toString(Double.NEGATIVE_INFINITY);
-      }
-    }
     StringBuffer decimalFormatBuffer = new StringBuffer(TWO_DECIMALS_FORMAT);
     double compareValue = 0.1;
     while (value > 0 && value < compareValue && !decimalFormatBuffer.toString().equals(MAX_DECIMALS_FORMAT)) {
@@ -419,40 +404,4 @@ public abstract class ThirdEyeUtils {
     return dataSource;
   }
 
-  /**
-   * Initializes a light weight ThirdEye environment for conducting standalone experiments.
-   *
-   * @param thirdEyeConfigDir the directory to ThirdEye configurations.
-   */
-  public static void initLightWeightThirdEyeEnvironment(String thirdEyeConfigDir) {
-    System.setProperty("dw.rootDir", thirdEyeConfigDir);
-
-    // Initialize DAO Registry
-    String persistenceConfig = thirdEyeConfigDir + "/persistence.yml";
-    LOG.info("Loading persistence config from [{}]", persistenceConfig);
-    DaoProviderUtil.init(new File(persistenceConfig));
-
-    // Read configuration for data sources, etc.
-    ThirdEyeDashboardConfiguration config;
-    try {
-      String dashboardConfigFilePath = thirdEyeConfigDir + "/dashboard.yml";
-      File configFile = new File(dashboardConfigFilePath);
-      ConfigurationFactory<ThirdEyeDashboardConfiguration> factory =
-          new ConfigurationFactory<>(ThirdEyeDashboardConfiguration.class,
-              Validation.buildDefaultValidatorFactory().getValidator(), Jackson.newObjectMapper(), "");
-      config = factory.build(configFile);
-      config.setRootDir(thirdEyeConfigDir);
-    } catch (Exception e) {
-      LOG.error("Exception while constructing ThirdEye config:", e);
-      throw new RuntimeException(e);
-    }
-
-    // Initialize Cache Registry
-    try {
-      ThirdEyeCacheRegistry.initializeCachesWithoutRefreshing(config);
-    } catch (Exception e) {
-      LOG.error("Exception while loading caches:", e);
-      throw new RuntimeException(e);
-    }
-  }
 }

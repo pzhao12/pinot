@@ -54,7 +54,7 @@ public class MetadataBasedAggregationPlanNode implements PlanNode {
         AggregationFunctionUtils.getAggregationFunctionContexts(aggregationInfos, indexSegment.getSegmentMetadata());
 
     for (AggregationFunctionContext aggregationFunctionContext : _aggregationFunctionContexts) {
-      String column = aggregationFunctionContext.getAggregationColumns()[0];
+      String column = aggregationFunctionContext.getAggregationColumnName();
 
       if (!_dataSourcePlanNodeMap.containsKey(column)) {
         // For count(*), there's no column to have the metadata for.

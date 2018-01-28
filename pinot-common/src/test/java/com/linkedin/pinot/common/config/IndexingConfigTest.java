@@ -117,7 +117,7 @@ public class IndexingConfigTest {
     List<String> expectedDimensionSplitOrder = Arrays.asList("col1", "col2", "col3");
     expectedStarTreeSpec.setDimensionsSplitOrder(expectedDimensionSplitOrder);
 
-    int expectedMaxLeafRecords = random.nextInt();
+    Integer expectedMaxLeafRecords = random.nextInt();
     expectedStarTreeSpec.setMaxLeafRecords(expectedMaxLeafRecords);
 
     int expectedSkipMaterializationThreshold = random.nextInt();

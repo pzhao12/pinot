@@ -45,15 +45,11 @@ public class ServiceStatus {
     STARTING, GOOD, BAD
   }
 
-  public static String STATUS_DESCRIPTION_NONE = "None";
-  public static String STATUS_DESCRIPTION_INIT = "Init";
-
   /**
    * Callback that returns the status of the service.
    */
   public interface ServiceStatusCallback {
     Status getServiceStatus();
-    String getStatusDescription();
   }
 
   private static ServiceStatusCallback serviceStatusCallback = null;
@@ -71,18 +67,6 @@ public class ServiceStatus {
       } catch (Exception e) {
         LOGGER.warn("Caught exception while reading the service status", e);
         return Status.BAD;
-      }
-    }
-  }
-
-  public static String getStatusDescription() {
-    if (serviceStatusCallback == null) {
-      return STATUS_DESCRIPTION_INIT;
-    } else {
-      try {
-        return serviceStatusCallback.getStatusDescription();
-      } catch (Exception e) {
-        return "Exception: " + e.getMessage();
       }
     }
   }
@@ -107,16 +91,6 @@ public class ServiceStatus {
       // All callbacks report good, therefore we're good too
       return Status.GOOD;
     }
-
-    public String getStatusDescription() {
-      StringBuilder statusDescription = new StringBuilder();
-      for (ServiceStatusCallback statusCallback : _statusCallbacks) {
-        statusDescription.append(
-            statusCallback.getClass().getSimpleName() + ":" + statusCallback.getStatusDescription() + ";"
-        );
-      }
-      return statusDescription.toString();
-    }
   }
 
   /**
@@ -133,7 +107,6 @@ public class ServiceStatus {
     protected HelixDataAccessor _helixDataAccessor;
     protected Builder _keyBuilder;
     protected Set<String> _resourcesDoneStartingUp = new HashSet<>();
-    private String _statusDescription = STATUS_DESCRIPTION_INIT;
 
     public IdealStateMatchServiceStatusCallback(HelixManager helixManager, String clusterName, String instanceName) {
       _helixManager = helixManager;
@@ -184,10 +157,6 @@ public class ServiceStatus {
       LOGGER.info("Monitoring resources {} for start up of instance {}", _resourcesToMonitor, _instanceName);
     }
 
-    public String getStatusDescription() {
-      return _statusDescription;
-    }
-
     protected abstract T getState(String resourceName);
 
     protected abstract Map<String, String> getPartitionStateMap(T state);
@@ -197,11 +166,8 @@ public class ServiceStatus {
       if (_finishedStartingUp) {
         return Status.GOOD;
       }
-      int index = 0;
-      final int totalResourceCount = _resourcesToMonitor.size();
 
       for (String resourceToMonitor : _resourcesToMonitor) {
-        final String completedCountStr = "(" + resourceToMonitor + ":" + index + "/" + totalResourceCount + ")";
         // If the instance is already done starting up, skip checking its state
         if (_resourcesDoneStartingUp.contains(resourceToMonitor)) {
           continue;
@@ -211,7 +177,6 @@ public class ServiceStatus {
         T helixState = getState(resourceToMonitor);
 
         if (idealState == null || helixState == null) {
-          _statusDescription = "idealState or helixState is null" + completedCountStr;
           return Status.STARTING;
         }
 
@@ -222,8 +187,6 @@ public class ServiceStatus {
 
         Map<String, String> statePartitionStateMap = getPartitionStateMap(helixState);
         if(statePartitionStateMap.isEmpty() && !idealState.getPartitionSet().isEmpty()) {
-          _statusDescription = "statePartitionStateMapSize=" + statePartitionStateMap.size() + ", idealStateSize="
-              + idealState.getPartitionSet().size() + completedCountStr;
           return Status.STARTING;
         }
 
@@ -240,7 +203,6 @@ public class ServiceStatus {
 
           // If this instance state is not in the current state, then it hasn't finished starting up
           if (!statePartitionStateMap.containsKey(partition)) {
-            _statusDescription = "statePartitionStateMap does not have " + partition + completedCountStr;
             return Status.STARTING;
           }
 
@@ -249,8 +211,6 @@ public class ServiceStatus {
           // If the instance state is not ERROR and is not the same as what's expected from the ideal state, then it
           // hasn't finished starting up
           if (!"ERROR".equals(currentStateStatus) && !idealStateStatus.equals(currentStateStatus)) {
-            _statusDescription = partition +" currentStateStatus=" + currentStateStatus + ", idealStateStatus="
-                + idealStateStatus + completedCountStr;
             return Status.STARTING;
           }
         }
@@ -261,7 +221,6 @@ public class ServiceStatus {
 
       LOGGER.info("Instance {} has finished starting up", _instanceName);
       _finishedStartingUp = true;
-      _statusDescription = STATUS_DESCRIPTION_NONE;
       return Status.GOOD;
     }
 

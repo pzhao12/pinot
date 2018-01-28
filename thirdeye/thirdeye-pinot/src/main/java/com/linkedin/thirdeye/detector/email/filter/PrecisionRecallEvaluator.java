@@ -2,17 +2,12 @@ package com.linkedin.thirdeye.detector.email.filter;
 
 import com.linkedin.thirdeye.anomalydetection.context.AnomalyFeedback;
 import com.linkedin.thirdeye.constant.AnomalyFeedbackType;
-import com.linkedin.thirdeye.constant.AnomalyResultSource;
 import com.linkedin.thirdeye.datalayer.dto.MergedAnomalyResultDTO;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
-
-import static com.linkedin.thirdeye.detector.email.filter.UserReportUtils.*;
 
 
 /**
@@ -40,7 +35,6 @@ public class PrecisionRecallEvaluator {
    */
   public PrecisionRecallEvaluator(AlertFilter alertFilter, List<MergedAnomalyResultDTO> anomalies) {
     this.alertFilter = alertFilter;
-    this.isProjected = true;
     init(anomalies);
   }
 
@@ -52,8 +46,6 @@ public class PrecisionRecallEvaluator {
   private int notifiedNotLabeled;  // Anomaly is notified, but not labeled
   private int userReportTrueAnomaly; // Anomaly is user reported: true anomaly that was not sent out
   private int userReportTrueAnomalyNewTrend; // Anomaly is user reported: true anomaly new trend that was not sent out
-  private boolean isProjected = false;
-      // isProjected to indicate if calculating system performance or alert filter's projected performance
 
   public static final String PRECISION = "precision";
   public static final String WEIGHTED_PRECISION = "weightedPrecision";
@@ -67,7 +59,7 @@ public class PrecisionRecallEvaluator {
   public static final String USER_REPORT = "userReportAnomaly";
 
   public static final Double WEIGHT_OF_NULL_LABEL = 0.5;
-  // the weight used for NA labeled data point when calculating precision
+      // the weight used for NA labeled data point when calculating precision
 
   public double getPrecision() {
     if (getTotalAlerts() == 0) {
@@ -167,36 +159,27 @@ public class PrecisionRecallEvaluator {
         isLabeledTrueAnomaly = true;
       }
 
-      // handle user report anomaly
-      if (anomaly.getAnomalyResultSource().equals(AnomalyResultSource.USER_LABELED_ANOMALY)) {
-        if (!isProjected) {
-          if (isLabeledTrueAnomaly) {
-            userReportTrueAnomaly++;
-          } else if (isLabeledTrueAnomalyNewTrend) {
-            userReportTrueAnomalyNewTrend++;
-          }
+      boolean isNotified = anomaly.isNotified();
+      // if alert filter is not null as provided by the constructor, proceed to evaluating the performance of alert filter using "isQualified"
+      if (alertFilter != null) {
+        isNotified = alertFilter.isQualified(anomaly);
+      }
+
+      if (isNotified) {
+        if (feedback == null || feedback.getFeedbackType() == null) {
+          this.notifiedNotLabeled++;
+        } else if (isLabeledTrueAnomaly) {
+          notifiedTrueAnomaly++;
+        } else if (isLabeledTrueAnomalyNewTrend) {
+          notifiedTrueAnomalyNewTrend++;
         } else {
-          if (isUserReportAnomalyIsQualified(this.alertFilter, anomaly)) {
-            notifiedTrueAnomaly++;
-          } else {
-            userReportTrueAnomaly++;
-          }
+          notifiedFalseAlarm++;
         }
       } else {
-        // if system detected anomaly, if using projected evaluation, skip those true anomalies that are not notified
-        // since these anomalies are originally unsent, but reverted the feedback based on user report
-        boolean isNotified = isProjected ? alertFilter.isQualified(anomaly) : anomaly.isNotified();
-
-        if (isNotified) {
-          if (feedback == null || feedback.getFeedbackType() == null) {
-            this.notifiedNotLabeled++;
-          } else if (isLabeledTrueAnomaly) {
-            notifiedTrueAnomaly++;
-          } else if (isLabeledTrueAnomalyNewTrend) {
-            notifiedTrueAnomalyNewTrend++;
-          } else {
-            notifiedFalseAlarm++;
-          }
+        if (isLabeledTrueAnomaly) {
+          userReportTrueAnomaly++;
+        } else if (isLabeledTrueAnomalyNewTrend) {
+          userReportTrueAnomalyNewTrend++;
         }
       }
     }
@@ -206,21 +189,6 @@ public class PrecisionRecallEvaluator {
     Properties evals = new Properties();
     evals.put(RESPONSE_RATE, getResponseRate());
     evals.put(PRECISION, getPrecision());
-    evals.put(WEIGHTED_PRECISION, getWeightedPrecision());
-    evals.put(RECALL, getRecall());
-    evals.put(TOTALALERTS, getTotalAlerts());
-    evals.put(TOTALRESPONSES, getTotalResponses());
-    evals.put(TRUEANOMALIES, getTrueAnomalies());
-    evals.put(FALSEALARM, getFalseAlarm());
-    evals.put(NEWTREND, getTrueAnomalyNewTrend());
-    evals.put(USER_REPORT, getUserReportAnomaly());
-    return evals;
-  }
-
-  public Map<String, Number> toNumberMap() {
-    Map<String, Number> evals = new HashMap<>();
-    evals.put(RESPONSE_RATE, getResponseRate());
-    evals.put(PRECISION, getPrecisionInResponse());
     evals.put(WEIGHTED_PRECISION, getWeightedPrecision());
     evals.put(RECALL, getRecall());
     evals.put(TOTALALERTS, getTotalAlerts());

@@ -1,29 +1,33 @@
 // rootcause event table columns mock
 export default [
   {
-    template: 'custom/table-checkbox',
+    template: 'custom/checkbox',
     useFilter: false,
     mayBeHidden: false,
-    className: 'events-table__column events-table__column--checkbox'
+    className: 'events-table__column--checkbox'
   },
   {
-    template: 'custom/table-label',
     propertyName: 'label',
     title: 'Event Name',
     className: 'events-table__column'
   },
   {
-    propertyName: 'humanStart',
-    title: 'Start Time',
-    sortedBy: 'start',
-    className: 'events-table__column events-table__column--compact',
+    propertyName: 'eventType',
+    title: 'Type',
+    filterWithSelect: true,
+    sortFilterOptions: true,
+    className: 'events-table__column--compact'
+  },
+  {
+    propertyName: 'start',
+    title: 'Start',
+    className: 'events-table__column--compact',
     disableFiltering: true
   },
   {
-    propertyName: 'duration',
-    title: 'Duration',
-    sortedBy: 'duration',
-    className: 'events-table__column events-table__column--compact',
+    propertyName: 'end',
+    title: 'End',
+    className: 'events-table__column--compact',
     disableFiltering: true
   }
 ];
